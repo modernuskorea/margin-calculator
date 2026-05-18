@@ -1225,29 +1225,121 @@ ${isAd ? generateAdReportHtml(h) : generateMarginReportHtml(h)}
         onDragOver={e=>{e.preventDefault();setDragOver(true);}}
         onDragLeave={()=>setDragOver(false)}
         onDrop={e=>{e.preventDefault();setDragOver(false);try{const item=JSON.parse(e.dataTransfer.getData("text/plain"));if(!compareItems.find(c=>c.id===item.id))setCompareItems(prev=>[...prev,item].slice(0,4));}catch{}}}>
-        <div style={{fontWeight:600,marginBottom:8,fontSize:13}}>비교 영역 <span style={{fontSize:12,color:"#999",fontWeight:400}}>— 드래그하거나 "비교" 버튼으로 추가 (최대 4개)</span></div>
+        <div style={{fontWeight:600,marginBottom:8,fontSize:13}}>
+          비교 영역 <span style={{fontSize:12,color:"#999",fontWeight:400}}>— 드래그하거나 "비교" 버튼으로 추가 (최대 4개)</span>
+          {compareItems.length>=2&&compareItems.every(c=>c.type==='adreport')&&(
+            <button className="btn btn-ghost" style={{fontSize:11,padding:"3px 10px",marginLeft:8,color:"#276749",borderColor:"#86efac"}}
+              onClick={()=>{
+                const sorted = [...compareItems].sort((a,b)=>a.id-b.id);
+                const prev = sorted[0], curr = sorted[sorted.length-1];
+                const diff = (curr, prev, key, sub) => {
+                  const c = curr?.summary?.[key]?.[sub], p = prev?.summary?.[key]?.[sub];
+                  if (c==null||p==null) return null;
+                  const d = c-p, pct = p!==0?Math.round(d/p*100):0;
+                  return {c:Math.round(c), p:Math.round(p), d:Math.round(d), pct};
+                };
+                const report = ['naver','coupang','adboost'].map(k=>{
+                  if (!curr.summary?.[k]&&!prev.summary?.[k]) return null;
+                  const label = {naver:'네이버',coupang:'쿠팡',adboost:'애드부스트'}[k];
+                  const roasDiff = diff(curr,prev,k,'roas');
+                  const costDiff = diff(curr,prev,k,'totalCost');
+                  return {label, roasDiff, costDiff};
+                }).filter(Boolean);
+                alert(`📊 비교 분석\n${prev.savedAt} → ${curr.savedAt}\n\n`+
+                  report.map(r=>`[${r.label}]\n`+
+                    (r.roasDiff?`ROAS: ${r.roasDiff.p}% → ${r.roasDiff.c}% (${r.roasDiff.d>0?'+':''}${r.roasDiff.d}%p)\n`:'')+
+                    (r.costDiff?`광고비: ₩${r.costDiff.p.toLocaleString()} → ₩${r.costDiff.c.toLocaleString()} (${r.costDiff.pct>0?'+':''}${r.costDiff.pct}%)`:'')).join('\n\n'));
+              }}>
+              📊 변화 비교
+            </button>
+          )}
+        </div>
         {compareItems.length===0
           ?<div style={{color:"#bbb",fontSize:13,textAlign:"center",padding:"8px 0"}}>카드를 여기로 드래그하세요</div>
-          :<div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:12}}>
-            {compareItems.map(item=>(
-              <div key={item.id} style={{background:"#f0f4ff",border:"1.5px solid #c7d2fe",borderRadius:11,padding:13,position:"relative"}}>
-                <button style={{position:"absolute",top:8,right:10,background:"none",border:"none",cursor:"pointer",color:"#bbb",fontSize:16}}
-                  onClick={()=>setCompareItems(prev=>prev.filter(c=>c.id!==item.id))}>×</button>
-                <div style={{fontWeight:600,fontSize:13,color:"#312e81",marginBottom:4}}>
-                  {item.type==='adreport'?'📊':'💰'} {item.name||item.keyword||"미지정"}
+          :<div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:12,marginBottom:compareItems.length>=2?12:0}}>
+              {compareItems.map(item=>(
+                <div key={item.id} style={{background:"#f0f4ff",border:"1.5px solid #c7d2fe",borderRadius:11,padding:13,position:"relative"}}>
+                  <button style={{position:"absolute",top:8,right:10,background:"none",border:"none",cursor:"pointer",color:"#bbb",fontSize:16}}
+                    onClick={()=>setCompareItems(prev=>prev.filter(c=>c.id!==item.id))}>×</button>
+                  <div style={{fontWeight:600,fontSize:13,color:"#312e81",marginBottom:4}}>
+                    {item.type==='adreport'?'📊':'💰'} {item.name||item.keyword||"미지정"}
+                  </div>
+                  <div style={{fontSize:11,color:"#999",marginBottom:8}}>{item.savedAt}</div>
+                  {item.type==='adreport'
+                    ? <div style={{fontSize:12}}>
+                        {item.summary?.naver&&<div style={{display:"flex",justifyContent:"space-between",marginBottom:2}}>
+                          <span style={{color:"#888"}}>네이버 ROAS</span>
+                          <span className="mono" style={{color:pColor(item.summary.naver.roas-300)}}>{item.summary.naver.roas?.toFixed(0)}%</span>
+                        </div>}
+                        {item.summary?.naver&&<div style={{display:"flex",justifyContent:"space-between",marginBottom:2}}>
+                          <span style={{color:"#888"}}>네이버 광고비</span>
+                          <span className="mono" style={{color:"#c53030"}}>₩{fmt(item.summary.naver.totalCost)}</span>
+                        </div>}
+                        {item.summary?.coupang&&<div style={{display:"flex",justifyContent:"space-between",marginBottom:2}}>
+                          <span style={{color:"#888"}}>쿠팡 ROAS</span>
+                          <span className="mono" style={{color:pColor(item.summary.coupang.roas-300)}}>{item.summary.coupang.roas?.toFixed(0)}%</span>
+                        </div>}
+                        {item.summary?.adboost&&<div style={{display:"flex",justifyContent:"space-between"}}>
+                          <span style={{color:"#888"}}>애드부스트 ROAS</span>
+                          <span className="mono" style={{color:pColor(item.summary.adboost.roas-300)}}>{item.summary.adboost.roas?.toFixed(0)}%</span>
+                        </div>}
+                      </div>
+                    : <div style={{fontSize:12}}>
+                        <div style={{display:"flex",justifyContent:"space-between",marginBottom:2}}><span style={{color:"#888"}}>판매가</span><span className="mono">₩{fmt(item.naverPrice)}</span></div>
+                        <div style={{display:"flex",justifyContent:"space-between"}}><span style={{color:"#555",fontWeight:600}}>소득세이후</span><span className="mono" style={{color:pColor(item.result?.finalProfit||0),fontWeight:700}}>₩{fmt(item.result?.finalProfit)}</span></div>
+                      </div>}
                 </div>
-                <div style={{fontSize:11,color:"#999",marginBottom:8}}>{item.savedAt}</div>
-                {item.type==='adreport'
-                  ? <div style={{fontSize:12}}>
-                      {item.summary?.naver&&<div style={{display:"flex",justifyContent:"space-between",marginBottom:2}}><span style={{color:"#888"}}>네이버 ROAS</span><span className="mono" style={{color:pColor(item.summary.naver.roas-300)}}>{item.summary.naver.roas?.toFixed(0)}%</span></div>}
-                      {item.summary?.coupang&&<div style={{display:"flex",justifyContent:"space-between"}}><span style={{color:"#888"}}>쿠팡 ROAS</span><span className="mono" style={{color:pColor(item.summary.coupang.roas-300)}}>{item.summary.coupang.roas?.toFixed(0)}%</span></div>}
-                    </div>
-                  : <div style={{fontSize:12}}>
-                      <div style={{display:"flex",justifyContent:"space-between",marginBottom:2}}><span style={{color:"#888"}}>판매가</span><span className="mono">₩{fmt(item.naverPrice)}</span></div>
-                      <div style={{display:"flex",justifyContent:"space-between"}}><span style={{color:"#555",fontWeight:600}}>소득세이후</span><span className="mono" style={{color:pColor(item.result?.finalProfit||0),fontWeight:700}}>₩{fmt(item.result?.finalProfit)}</span></div>
-                    </div>}
-              </div>
-            ))}
+              ))}
+            </div>
+            {/* 광고 분석 2개 이상 시 수치 변화 테이블 */}
+            {compareItems.length>=2&&compareItems.filter(c=>c.type==='adreport').length>=2&&(()=>{
+              const adItems = [...compareItems.filter(c=>c.type==='adreport')].sort((a,b)=>a.id-b.id);
+              const platforms = ['naver','coupang','adboost'];
+              const labels = {naver:'🟢 네이버',coupang:'🟠 쿠팡',adboost:'🔵 애드부스트'};
+              const metrics = [
+                {key:'totalCost',label:'광고비',fmt:v=>`₩${fmt(v)}`,inverted:true},
+                {key:'roas',label:'ROAS',fmt:v=>`${v?.toFixed(0)}%`},
+                {key:'totalConv',label:'전환수',fmt:v=>`${fmt(v)}건`},
+                {key:'wasteCost',label:'낭비비용',fmt:v=>`₩${fmt(v)}`,inverted:true},
+              ];
+              return (
+                <div style={{background:"#f0f4ff",borderRadius:12,padding:14,border:"1px solid #c7d2fe"}}>
+                  <div style={{fontWeight:600,fontSize:13,color:"#312e81",marginBottom:10}}>
+                    📈 기간 비교: {adItems[0].savedAt?.slice(0,10)} → {adItems[adItems.length-1].savedAt?.slice(0,10)}
+                  </div>
+                  <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                    <thead>
+                      <tr style={{borderBottom:"1.5px solid #c7d2fe",color:"#666"}}>
+                        <th style={{textAlign:"left",padding:"4px 8px",fontWeight:600}}>플랫폼/지표</th>
+                        {adItems.map(item=><th key={item.id} style={{textAlign:"right",padding:"4px 8px",fontWeight:600}}>{item.savedAt?.slice(5,10)}</th>)}
+                        <th style={{textAlign:"right",padding:"4px 8px",fontWeight:600,color:"#312e81"}}>변화</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {platforms.flatMap(p=>metrics.map(m=>{
+                        const vals = adItems.map(item=>item.summary?.[p]?.[m.key]);
+                        if (vals.every(v=>v==null)) return null;
+                        const first = vals[0], last = vals[vals.length-1];
+                        const diff = (first!=null&&last!=null)?last-first:null;
+                        const pct = (diff!=null&&first&&first!==0)?Math.round(diff/Math.abs(first)*100):null;
+                        const isGood = m.inverted ? diff<0 : diff>0;
+                        return (
+                          <tr key={p+m.key} style={{borderBottom:"1px solid #e0e7ff"}}>
+                            <td style={{padding:"4px 8px",color:"#555"}}>{labels[p]} {m.label}</td>
+                            {vals.map((v,i)=><td key={i} style={{padding:"4px 8px",textAlign:"right",fontFamily:"DM Mono",color:v==null?"#bbb":"#1a1a1a"}}>{v!=null?m.fmt(v):'-'}</td>)}
+                            <td style={{padding:"4px 8px",textAlign:"right",fontFamily:"DM Mono",fontWeight:700,
+                              color:diff==null?"#bbb":isGood?"#1a6b3a":"#c53030"}}>
+                              {diff!=null?(isGood?'▲':'▼')+m.fmt(Math.abs(diff))+(pct?` (${pct>0?'+':''}${pct}%)`:''):'-'}
+                            </td>
+                          </tr>
+                        );
+                      })).filter(Boolean)}
+                    </tbody>
+                  </table>
+                </div>
+              );
+            })()}
           </div>}
       </div>
       )}
@@ -1675,42 +1767,70 @@ function AdReportTab({
     let found = { key: searchKey, groups: {} };
     const onlyPlatform = searchPlatformFilter; // null=전체
 
-    // 네이버 검색광고
+    // DB에서 상품코드로 광고그룹명/쇼핑ID/쿠팡옵션ID 자동 조회
+    const dbItem = (() => {
+      try {
+        const db = JSON.parse(localStorage.getItem('mc_productdb_v1')||'[]');
+        return db.find(p =>
+          p.code?.toLowerCase() === key ||
+          p.name?.toLowerCase().includes(key) ||
+          p.shopId?.toLowerCase() === key ||
+          p.naverShopId?.toLowerCase() === key ||
+          p.coupangOptionId?.toLowerCase() === key
+        );
+      } catch { return null; }
+    })();
+
+    // DB에서 찾은 항목의 매핑 정보
+    const dbNaverGroups = dbItem?.naverGroup ? dbItem.naverGroup.split(',').map(g=>g.trim().toLowerCase()).filter(Boolean) : [];
+    const dbShopId = dbItem?.shopId?.toLowerCase() || '';
+    const dbNaverShopId = dbItem?.naverShopId?.toLowerCase() || '';
+    const dbCoupangOptionId = dbItem?.coupangOptionId?.toLowerCase() || '';
+
+    // 네이버 검색광고 — 광고그룹명 또는 DB 매핑 그룹명으로 검색
     if (parsed.naver && (onlyPlatform===null||onlyPlatform==='naver')) {
       const toN = v => parseFloat(String(v).replace(/,/g,'')) || 0;
       const groups = {};
       parsed.naver.data.forEach(r => {
-        const grp = r['광고그룹'] || '';
-        if (!grp.toLowerCase().includes(key) && !r['캠페인']?.toLowerCase().includes(key)) return;
-        if (!groups[grp]) groups[grp] = { rows:[], cost:0, click:0, conv:0, sales:0, impression:0 };
-        groups[grp].rows.push(r);
-        groups[grp].cost += toN(r['총비용']);
-        groups[grp].click += toN(r['클릭수']);
-        groups[grp].conv += toN(r['구매완료 전환수']);
-        groups[grp].sales += toN(r['구매완료 전환매출액(원)']);
-        groups[grp].impression += toN(r['노출수']);
+        const grp = String(r['광고그룹']||'').toLowerCase();
+        const camp = String(r['캠페인']||'').toLowerCase();
+        const keyword = String(r['검색어']||'').toLowerCase();
+        // 직접 키 매칭 또는 DB 매핑 그룹명 매칭
+        const directMatch = grp.includes(key) || camp.includes(key) || keyword.includes(key);
+        const dbMatch = dbNaverGroups.length > 0 && dbNaverGroups.some(g => grp.includes(g) || g.includes(grp));
+        if (!directMatch && !dbMatch) return;
+        const grpKey = r['광고그룹'] || '기타';
+        if (!groups[grpKey]) groups[grpKey] = { rows:[], cost:0, click:0, conv:0, sales:0, impression:0 };
+        groups[grpKey].rows.push(r);
+        groups[grpKey].cost += toN(r['총비용']);
+        groups[grpKey].click += toN(r['클릭수']);
+        groups[grpKey].conv += toN(r['구매완료 전환수']);
+        groups[grpKey].sales += toN(r['구매완료 전환매출액(원)']);
+        groups[grpKey].impression += toN(r['노출수']);
       });
       if (Object.keys(groups).length > 0) {
         found.groups.naver = groups;
-        // 낭비/고성과 키워드
         const allRows = Object.values(groups).flatMap(g => g.rows);
         found.naverWaste = allRows.filter(r => toN(r['총비용'])>0 && toN(r['구매완료 전환수'])===0)
-          .sort((a,b) => toN(b['총비용'])-toN(a['총비용'])).slice(0,10);
+          .sort((a,b) => toN(b['총비용'])-toN(a['총비용'])).slice(0,15);
         found.naverTop = allRows.filter(r => toN(r['구매완료 전환수'])>0)
-          .sort((a,b) => toN(b['구매완료 광고수익률(%)'])-toN(a['구매완료 광고수익률(%)'])).slice(0,10);
+          .sort((a,b) => toN(b['구매완료 광고수익률(%)'])-toN(a['구매완료 광고수익률(%)'])).slice(0,15);
       }
     }
 
-    // 쿠팡: 상품명, 키워드, 옵션ID로 검색
+    // 쿠팡: 상품명, 키워드, 옵션ID, DB 매핑 옵션ID로 검색
     if (parsed.coupang && (onlyPlatform===null||onlyPlatform==='coupang')) {
       const toN = v => parseFloat(String(v).replace(/,/g,'').replace(/%/g,'')) || 0;
       const groups = {};
+      const allCoupangRows = [];
       const areaKey2 = Object.keys(parsed.coupang.data[0]||{}).find(k=>k.includes('노출 지면')||k.includes('지면')) || '광고 노출 지면';
       parsed.coupang.data.forEach(r => {
         const nm  = String(r['광고집행 상품명']||'').toLowerCase();
         const kw  = String(r['키워드']||'').toLowerCase();
         const oid = String(r['광고집행 옵션ID']||'').toLowerCase();
-        if (!nm.includes(key) && !kw.includes(key) && !oid.includes(key)) return;
+        const directMatch = nm.includes(key) || kw.includes(key) || oid.includes(key);
+        const dbMatch = (dbCoupangOptionId && oid === dbCoupangOptionId);
+        if (!directMatch && !dbMatch) return;
         const area = String(r[areaKey2]||'기타');
         const areaLabel = area.includes('비검색') ? '비검색 영역' : area.includes('검색') ? '검색 영역' : area;
         if (!groups[areaLabel]) groups[areaLabel] = { cost:0, click:0, order:0, sales14:0, sales1:0, rows:[] };
@@ -1721,18 +1841,35 @@ function AdReportTab({
         groups[areaLabel].sales14+= toNc(r['총 전환매출액(14일)']);
         groups[areaLabel].sales1 += toNc(r['총 전환매출액(1일)']);
         groups[areaLabel].rows.push(r);
+        allCoupangRows.push(r);
       });
-      if (Object.keys(groups).length > 0) found.groups.coupang = groups;
+      if (Object.keys(groups).length > 0) {
+        found.groups.coupang = groups;
+        // 쿠팡 고성과 키워드 (검색영역, 전환있음, ROAS 높은 순)
+        found.coupangTop = allCoupangRows
+          .filter(r => toN(r['총 주문수(1일)'])>0 && String(r[areaKey2]||'').includes('검색'))
+          .sort((a,b)=>{
+            const ra = toN(a['총 전환매출액(14일)'])>0&&toN(a['광고비'])>0 ? toN(a['총 전환매출액(14일)'])/toN(a['광고비']) : 0;
+            const rb = toN(b['총 전환매출액(14일)'])>0&&toN(b['광고비'])>0 ? toN(b['총 전환매출액(14일)'])/toN(b['광고비']) : 0;
+            return rb - ra;
+          }).slice(0,15);
+        // 쿠팡 낭비 키워드 (검색영역, 전환없음, 광고비 높은 순)
+        found.coupangWaste = allCoupangRows
+          .filter(r => toN(r['광고비'])>0 && toN(r['총 주문수(1일)'])===0 && String(r[areaKey2]||'').includes('검색') && !String(r[areaKey2]||'').includes('비검색'))
+          .sort((a,b)=>toN(b['광고비'])-toN(a['광고비'])).slice(0,15);
+      }
     }
 
-    // 애드부스트: 상품명, 쇼핑몰ID, 네이버쇼핑ID로 검색
+    // 애드부스트: 상품명, 쇼핑몰ID, 네이버쇼핑ID, DB 매핑ID로 검색
     if (parsed.adboost && (onlyPlatform===null||onlyPlatform==='adboost')) {
       const toN = v => parseFloat(String(v).replace(/,/g,'').replace(/%/g,'')) || 0;
       const matchRows = parsed.adboost.data.filter(r => {
-        const nm = (r['상품명']||'').toLowerCase();
-        const sid = (r['쇼핑몰 상품 ID']||'').toLowerCase();
-        const nid = (r['네이버쇼핑 상품 ID']||'').toLowerCase();
-        return nm.includes(key) || sid.includes(key) || nid.includes(key);
+        const nm  = String(r['상품명']||'').toLowerCase();
+        const sid = String(r['쇼핑몰 상품 ID']||'').toLowerCase();
+        const nid = String(r['네이버쇼핑 상품 ID']||'').toLowerCase();
+        const directMatch = nm.includes(key) || sid.includes(key) || nid.includes(key);
+        const dbMatch = (dbShopId && sid === dbShopId) || (dbNaverShopId && nid === dbNaverShopId);
+        return directMatch || dbMatch;
       });
       if (matchRows.length > 0) {
         const total = { cost:0, click:0, conv:0, sales:0, imp:0, wishlist:0 };
@@ -1745,7 +1882,10 @@ function AdReportTab({
       }
     }
 
-    setSearchResult(Object.keys(found.groups).length > 0 ? found : { key: searchKey, notFound: true });
+    // DB 정보 함께 저장
+    if (dbItem) found.dbItem = dbItem;
+
+    setSearchResult(Object.keys(found.groups).length > 0 ? found : { key: searchKey, notFound: true, dbItem });
   };
 
   // ── AI 전략 분석 ──
@@ -2148,8 +2288,28 @@ function AdReportBody({
 
         {/* 검색 결과 */}
         {searchResult && searchResult.notFound && (
-          <div style={{padding:20,textAlign:'center',color:'#999',background:'#f8f7f4',borderRadius:11}}>
-            "{searchResult.key}"에 해당하는 광고 데이터를 찾지 못했습니다.
+          <div style={{padding:20,borderRadius:11,background:'#f8f7f4'}}>
+            <div style={{textAlign:'center',color:'#999',marginBottom:searchResult.dbItem?14:0}}>
+              "{searchResult.key}"에 해당하는 광고 데이터를 찾지 못했습니다.
+            </div>
+            {searchResult.dbItem && (
+              <div style={{background:'#fff',border:'1px solid #eae7df',borderRadius:10,padding:14,fontSize:13}}>
+                <div style={{fontWeight:600,marginBottom:10,color:'#1a365d'}}>
+                  📦 DB 상품 정보 — {searchResult.dbItem.name}
+                </div>
+                <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:10,marginBottom:10}}>
+                  <div><div style={{fontSize:11,color:'#999'}}>원가</div><div style={{fontFamily:'DM Mono',fontWeight:600}}>₩{fmt(searchResult.dbItem.cost)}</div></div>
+                  <div><div style={{fontSize:11,color:'#999'}}>네이버 판매가</div><div style={{fontFamily:'DM Mono',fontWeight:600,color:'#276749'}}>₩{fmt(searchResult.dbItem.naverPrice)}</div></div>
+                  <div><div style={{fontSize:11,color:'#999'}}>쿠팡 판매가</div><div style={{fontFamily:'DM Mono',fontWeight:600,color:'#9c4221'}}>₩{fmt(searchResult.dbItem.coupangPrice)}</div></div>
+                </div>
+                <div style={{background:'#fff5f5',padding:'8px 12px',borderRadius:8,fontSize:12,color:'#c53030'}}>
+                  ⚠️ 광고 보고서에서 매핑되지 않았습니다.
+                  {searchResult.dbItem.naverGroup
+                    ? <span style={{color:'#276749'}}> 네이버그룹: {searchResult.dbItem.naverGroup} 등록됨 (보고서에 해당 그룹 없음)</span>
+                    : ' → 상품DB 탭에서 광고그룹명/쿠팡옵션ID 입력 필요'}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -2241,15 +2401,30 @@ function AdReportBody({
                     {searchResult.naverWaste?.length>0 && (
                       <div style={{background:'#fff5f5',borderRadius:11,padding:14}}>
                         <div style={{fontWeight:600,fontSize:13,color:'#c53030',marginBottom:10}}>
-                          ❌ 낭비 키워드 TOP{Math.min(5,searchResult.naverWaste.length)} (제외 검토)
+                          ❌ 낭비 키워드 TOP{Math.min(10,searchResult.naverWaste.length)} (전환0 + 비용발생)
                         </div>
-                        {searchResult.naverWaste.slice(0,5).map((r,i)=>(
-                          <div key={i} style={{display:'flex',justifyContent:'space-between',
-                            padding:'5px 0',borderBottom:'1px solid #fed7d7',fontSize:12}}>
-                            <span style={{color:'#c53030',fontWeight:500}}>{r['검색어']}</span>
-                            <span style={{fontFamily:'DM Mono',color:'#c53030'}}>₩{fmt(r['총비용'])}</span>
-                          </div>
-                        ))}
+                        {searchResult.naverWaste.slice(0,10).map((r,i)=>{
+                          const toN = v=>parseFloat(String(v).replace(/,/g,''))||0;
+                          const cost = toN(r['총비용']);
+                          const click = toN(r['클릭수']);
+                          const cpc = click>0?cost/click:0;
+                          const imp = toN(r['노출수']);
+                          const ctr = imp>0?(click/imp*100).toFixed(2):0;
+                          const action = cpc>3000?'🔴 즉시 제외':cpc>1500?'🟡 입찰가 50% 인하':cpc>800?'🟡 입찰가 30% 인하':click>20?'🟠 소재 개선':'🟢 관찰 유지';
+                          const guide = cpc>3000?'제외 키워드 등록':cpc>1500?`목표 ₩${fmt(Math.round(cpc*0.5))} 이하`:cpc>800?`목표 ₩${fmt(Math.round(cpc*0.7))} 이하`:click>20?`CTR ${ctr}% → 소재 교체`:'5회 이상 전환 없으면 제외';
+                          return (
+                            <div key={i} style={{padding:'6px 0',borderBottom:'1px solid #fed7d7',fontSize:11}}>
+                              <div style={{display:'flex',justifyContent:'space-between',marginBottom:2}}>
+                                <span style={{color:'#c53030',fontWeight:500,fontSize:12}}>{r['검색어']}</span>
+                                <span style={{fontFamily:'DM Mono',color:'#c53030'}}>₩{fmt(cost)}</span>
+                              </div>
+                              <div style={{display:'flex',justifyContent:'space-between',color:'#888'}}>
+                                <span>{action}</span>
+                                <span style={{fontSize:10,color:'#aaa'}}>{guide}</span>
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
                     )}
                   </div>
@@ -2261,10 +2436,59 @@ function AdReportBody({
             {searchResult.groups.coupang && (
               <div style={{marginBottom:18}}>
                 <div style={{fontWeight:600,fontSize:14,color:'#9c4221',marginBottom:10}}>🟠 쿠팡 광고 (검색/비검색 영역)</div>
-                <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(200px,1fr))',gap:12}}>
+                <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(200px,1fr))',gap:12,marginBottom:14}}>
                   {Object.entries(searchResult.groups.coupang).map(([area,g])=>(
                     <CoupangDetailCard key={area} area={area} g={g} fmt={fmt} />
                   ))}
+                </div>
+                {/* 쿠팡 고성과 키워드 */}
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14}}>
+                  {searchResult.coupangTop?.length>0&&(
+                    <div style={{background:'#fff8f0',borderRadius:11,padding:14}}>
+                      <div style={{fontWeight:600,fontSize:13,color:'#9c4221',marginBottom:10}}>
+                        ⭐ 고성과 키워드 TOP{Math.min(10,searchResult.coupangTop.length)}
+                      </div>
+                      {searchResult.coupangTop.slice(0,10).map((r,i)=>{
+                        const toN = v=>parseFloat(String(v).replace(/,/g,''))||0;
+                        const roas = toN(r['광고비'])>0 ? (toN(r['총 전환매출액(14일)'])/toN(r['광고비'])*100).toFixed(0) : 0;
+                        return (
+                          <div key={i} style={{display:'flex',justifyContent:'space-between',
+                            padding:'5px 0',borderBottom:'1px solid #fed7aa',fontSize:12}}>
+                            <span style={{color:'#9c4221',fontWeight:500}}>{r['키워드']||'-'}</span>
+                            <span style={{fontFamily:'DM Mono',color:'#9c4221',fontWeight:600}}>ROAS {roas}%</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {searchResult.coupangWaste?.length>0&&(
+                    <div style={{background:'#fff5f5',borderRadius:11,padding:14}}>
+                      <div style={{fontWeight:600,fontSize:13,color:'#c53030',marginBottom:10}}>
+                        ❌ 낭비 키워드 TOP{Math.min(10,searchResult.coupangWaste.length)}
+                        <span style={{fontSize:11,fontWeight:400,color:'#999',marginLeft:6}}>전환0 + 비용발생</span>
+                      </div>
+                      {searchResult.coupangWaste.slice(0,10).map((r,i)=>{
+                        const toN = v=>parseFloat(String(v).replace(/,/g,''))||0;
+                        const cost = toN(r['광고비']);
+                        const click = toN(r['클릭수']);
+                        const cpc = click>0?cost/click:0;
+                        const action = cpc>3000?'🔴 즉시 제외':cpc>1500?'🟡 입찰가 50% 인하':cpc>800?'🟡 입찰가 30% 인하':'🟢 관찰 유지';
+                        const guide = cpc>3000?`입찰가 → 목표CPC 이하로`:cpc>1500?`₩${fmt(Math.round(cpc*0.5))} 이하 목표`:cpc>800?`₩${fmt(Math.round(cpc*0.7))} 이하 목표`:'전환 발생 시까지 관찰';
+                        return (
+                          <div key={i} style={{padding:'6px 0',borderBottom:'1px solid #fed7d7',fontSize:11}}>
+                            <div style={{display:'flex',justifyContent:'space-between',marginBottom:2}}>
+                              <span style={{color:'#c53030',fontWeight:500}}>{r['키워드']||'-'}</span>
+                              <span style={{fontFamily:'DM Mono',color:'#c53030'}}>₩{fmt(cost)}</span>
+                            </div>
+                            <div style={{display:'flex',justifyContent:'space-between',color:'#888'}}>
+                              <span>{action}</span>
+                              <span style={{fontSize:10,color:'#aaa'}}>{guide}</span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -2737,9 +2961,11 @@ function ProductDBTab({ settings }) {
           <table style={{width:'100%',borderCollapse:'collapse',fontSize:12,minWidth:1200}}>
             <thead>
               <tr style={{background:'#1a365d',color:'#fff'}}>
-                {['품목코드','상품명','카테고리','원가','네이버가','쿠팡가','오픈마켓가',
-                  '최소ROAS(네이버)','최소ROAS(쿠팡)','광고그룹명','상태',''].map((h,i)=>(
-                  <th key={i} style={{padding:'8px 10px',textAlign:i>3&&i<9?'center':'left',fontWeight:600,whiteSpace:'nowrap'}}>{h}</th>
+                {['품목코드','상품명','카테고리','원가','네이버가','쿠팡가',
+                  '최소ROAS(N)','네이버이익','네이버수익률',
+                  '최소ROAS(C)','쿠팡이익','쿠팡수익률',
+                  '광고그룹명','상태',''].map((h,i)=>(
+                  <th key={i} style={{padding:'8px 8px',textAlign:i>3?'center':'left',fontWeight:600,whiteSpace:'nowrap',fontSize:11}}>{h}</th>
                 ))}
               </tr>
             </thead>
@@ -2748,62 +2974,93 @@ function ProductDBTab({ settings }) {
                 const isEdit = editId===p.id;
                 const naverMinRoas = calcMinRoas(p.cost, p.naverPrice, 'naver');
                 const coupangMinRoas = calcMinRoas(p.cost, p.coupangPrice, 'coupang');
+                // 수익/수익률 계산
+                const calcProfit = (cost, price, platformKey) => {
+                  if (!cost||!price) return {profit:null,roi:null};
+                  const feeRate = (settings.fees[platformKey]?.rate||8)/100;
+                  const paidFee = settings.defaultPaidFee||3000;
+                  const shipCost = settings.defaultShippingCost||2700;
+                  const 수수료 = price*feeRate+paidFee*(settings.shippingFeeCommission||3.3)/100;
+                  const 세전 = (price+paidFee-cost-shipCost-수수료)/1.1;
+                  const 부가세 = (price+paidFee)/1.1*0.1-(cost+shipCost+수수료)/1.1*0.1;
+                  const 세후 = 세전-부가세;
+                  const 최종 = 세후>0?세후*(1-(settings.incomeTaxRate||15)/100):세후;
+                  return {profit:Math.round(최종), roi:price>0?Math.round(최종/price*1000)/10:null};
+                };
+                const nP = calcProfit(p.cost, p.naverPrice, 'naver');
+                const cP = calcProfit(p.cost, p.coupangPrice, 'coupang');
                 return (
                   <tr key={p.id} style={{borderBottom:'1px solid #eae7df',background:i%2?'#f8f7f4':'#fff'}}>
-                    {/* 품목코드 — 신규 항목(NEW-로 시작)이면 편집 가능 */}
-                    <td style={{padding:'6px 10px',fontFamily:'DM Mono',fontSize:11}}>
+                    <td style={{padding:'6px 8px',fontFamily:'DM Mono',fontSize:11}}>
                       {p.id.startsWith('NEW-') ? (
                         <input className='inp' value={p.code||''} placeholder='AM-KJ-A-0001'
-                          style={{fontSize:11,padding:'4px 8px',width:140,fontFamily:'DM Mono'}}
+                          style={{fontSize:11,padding:'4px 8px',width:130,fontFamily:'DM Mono'}}
                           onChange={e=>updateProduct(p.id,'code',e.target.value.toUpperCase())} />
                       ) : (
                         <span style={{color:'#666'}}>{p.code}</span>
                       )}
                     </td>
-                    <td style={{padding:'6px 10px',minWidth:200}}>
+                    <td style={{padding:'6px 8px',minWidth:180}}>
                       {isEdit ? <input className='inp' value={p.name} style={{fontSize:12,padding:'4px 8px'}}
-                        onChange={e=>updateProduct(p.id,'name',e.target.value)} /> : <span style={{fontWeight:500}}>{p.name}</span>}
+                        onChange={e=>updateProduct(p.id,'name',e.target.value)} /> : <span style={{fontWeight:500,fontSize:12}}>{p.name}</span>}
                     </td>
-                    {/* 카테고리 — 품목코드에서 자동 생성, 배지 형태 표시 */}
-                    <td style={{padding:'6px 10px',whiteSpace:'nowrap'}}>
-                      <span style={{fontSize:11,color:'#4A235A',background:'#FAF5FF',
-                        padding:'2px 8px',borderRadius:20,display:'inline-block'}}>
+                    <td style={{padding:'6px 8px',whiteSpace:'nowrap'}}>
+                      <span style={{fontSize:10,color:'#4A235A',background:'#FAF5FF',
+                        padding:'2px 6px',borderRadius:20,display:'inline-block'}}>
                         {p.category||getCategoryFromCode(p.code)||'기타'}
                       </span>
                     </td>
-                    <td style={{padding:'6px 10px',textAlign:'right',fontFamily:'DM Mono',color:'#c53030'}}>
-                      {isEdit ? <input className='inp' value={p.cost} type='number' style={{fontSize:12,padding:'4px 8px',width:90,textAlign:'right'}}
+                    <td style={{padding:'6px 8px',textAlign:'right',fontFamily:'DM Mono',color:'#c53030',fontSize:12}}>
+                      {isEdit ? <input className='inp' value={p.cost} type='number' style={{fontSize:11,padding:'4px 6px',width:80,textAlign:'right'}}
                         onChange={e=>updateProduct(p.id,'cost',parseFloat(e.target.value)||0)} /> : `₩${fmt(p.cost)}`}
                     </td>
-                    {['naverPrice','coupangPrice','openmarketPrice'].map(field=>(
-                      <td key={field} style={{padding:'6px 10px',textAlign:'center'}}>
+                    {['naverPrice','coupangPrice'].map(field=>(
+                      <td key={field} style={{padding:'6px 8px',textAlign:'center'}}>
                         <input className='inp' value={p[field]||''} type='text' inputMode='numeric'
-                          style={{fontSize:12,padding:'4px 8px',textAlign:'right',
-                            background:p[field]>0?'#f0fff4':'#fff8e1',width:90}}
+                          style={{fontSize:11,padding:'4px 6px',textAlign:'right',
+                            background:p[field]>0?'#f0fff4':'#fff8e1',width:80}}
                           onChange={e=>updateProduct(p.id,field,parse(e.target.value))}
                           onFocus={e=>e.target.select()} placeholder='판매가' />
                       </td>
                     ))}
-                    <td style={{padding:'6px 10px',textAlign:'center',fontFamily:'DM Mono',fontWeight:600,
-                      color:naverMinRoas?'#2c5282':'#bbb'}}>
+                    {/* 네이버 최소ROAS + 이익 + 수익률 */}
+                    <td style={{padding:'6px 8px',textAlign:'center',fontFamily:'DM Mono',fontWeight:700,fontSize:12,
+                      color:naverMinRoas?'#276749':'#bbb'}}>
                       {naverMinRoas?`${naverMinRoas}%`:'-'}
                     </td>
-                    <td style={{padding:'6px 10px',textAlign:'center',fontFamily:'DM Mono',fontWeight:600,
+                    <td style={{padding:'6px 8px',textAlign:'right',fontFamily:'DM Mono',fontSize:11,
+                      color:nP.profit>0?'#276749':'#c53030'}}>
+                      {nP.profit!==null?`₩${fmt(nP.profit)}`:'-'}
+                    </td>
+                    <td style={{padding:'6px 8px',textAlign:'center',fontSize:11,fontWeight:600,
+                      color:nP.roi>0?'#276749':'#c53030'}}>
+                      {nP.roi!==null?`${nP.roi}%`:'-'}
+                    </td>
+                    {/* 쿠팡 최소ROAS + 이익 + 수익률 */}
+                    <td style={{padding:'6px 8px',textAlign:'center',fontFamily:'DM Mono',fontWeight:700,fontSize:12,
                       color:coupangMinRoas?'#9c4221':'#bbb'}}>
                       {coupangMinRoas?`${coupangMinRoas}%`:'-'}
                     </td>
-                    <td style={{padding:'6px 10px',minWidth:160}}>
+                    <td style={{padding:'6px 8px',textAlign:'right',fontFamily:'DM Mono',fontSize:11,
+                      color:cP.profit>0?'#9c4221':'#c53030'}}>
+                      {cP.profit!==null?`₩${fmt(cP.profit)}`:'-'}
+                    </td>
+                    <td style={{padding:'6px 8px',textAlign:'center',fontSize:11,fontWeight:600,
+                      color:cP.roi>0?'#9c4221':'#c53030'}}>
+                      {cP.roi!==null?`${cP.roi}%`:'-'}
+                    </td>
+                    <td style={{padding:'6px 8px',minWidth:150}}>
                       <input className='inp' value={p.naverGroup||''} placeholder='광고그룹명 (쉼표구분)'
-                        style={{fontSize:11,padding:'4px 8px'}}
+                        style={{fontSize:11,padding:'4px 6px'}}
                         onChange={e=>updateProduct(p.id,'naverGroup',e.target.value)} />
                     </td>
-                    <td style={{padding:'6px 10px'}}>
-                      <select className='inp' value={p.status||'활성'} style={{fontSize:11,padding:'4px 8px'}}
+                    <td style={{padding:'6px 8px'}}>
+                      <select className='inp' value={p.status||'활성'} style={{fontSize:11,padding:'4px 6px'}}
                         onChange={e=>updateProduct(p.id,'status',e.target.value)}>
                         {['활성','단종','검토중','신규'].map(s=><option key={s}>{s}</option>)}
                       </select>
                     </td>
-                    <td style={{padding:'6px 10px',textAlign:'center'}}>
+                    <td style={{padding:'6px 8px',textAlign:'center'}}>
                       <button className='btn btn-danger' style={{fontSize:10,padding:'3px 8px'}}
                         onClick={()=>deleteProduct(p.id)}>삭제</button>
                     </td>
