@@ -2947,8 +2947,8 @@ function ProductDBTab({ settings }) {
                 {['품목코드','상품명','카테고리','원가','네이버가','쿠팡가',
                   '최소ROAS(N)','네이버이익','네이버수익률',
                   '최소ROAS(C)','쿠팡이익','쿠팡수익률',
-                  '광고그룹명','상태',''].map((h,i)=>(
-                  <th key={i} style={{padding:'8px 8px',textAlign:i>3?'center':'left',fontWeight:600,whiteSpace:'nowrap',fontSize:11}}>{h}</th>
+                  '네이버광고그룹명','쇼핑몰ID','네이버쇼핑ID','쿠팡옵션ID','상태',''].map((h,i)=>(
+                  <th key={i} style={{padding:'8px 8px',textAlign:i>3&&i<12?'center':'left',fontWeight:600,whiteSpace:'nowrap',fontSize:11,minWidth:i===16?70:undefined}}>{h}</th>
                 ))}
               </tr>
             </thead>
@@ -3034,11 +3034,30 @@ function ProductDBTab({ settings }) {
                     </td>
                     <td style={{padding:'6px 8px',minWidth:150}}>
                       <input className='inp' value={p.naverGroup||''} placeholder='광고그룹명 (쉼표구분)'
-                        style={{fontSize:11,padding:'4px 6px'}}
+                        style={{fontSize:11,padding:'4px 6px',width:'100%'}}
                         onChange={e=>updateProduct(p.id,'naverGroup',e.target.value)} />
                     </td>
-                    <td style={{padding:'6px 8px'}}>
-                      <select className='inp' value={p.status||'활성'} style={{fontSize:11,padding:'4px 6px'}}
+                    <td style={{padding:'6px 8px',minWidth:110}}>
+                      <input className='inp' value={p.shopId||''} placeholder='쇼핑몰 상품ID'
+                        style={{fontSize:11,padding:'4px 6px',width:'100%',
+                          background:p.shopId?'#f0fff4':'#fff'}}
+                        onChange={e=>updateProduct(p.id,'shopId',e.target.value)} />
+                    </td>
+                    <td style={{padding:'6px 8px',minWidth:120}}>
+                      <input className='inp' value={p.naverShopId||''} placeholder='네이버쇼핑 상품ID'
+                        style={{fontSize:11,padding:'4px 6px',width:'100%',
+                          background:p.naverShopId?'#f0fff4':'#fff'}}
+                        onChange={e=>updateProduct(p.id,'naverShopId',e.target.value)} />
+                    </td>
+                    <td style={{padding:'6px 8px',minWidth:110}}>
+                      <input className='inp' value={p.coupangOptionId||''} placeholder='쿠팡 옵션ID'
+                        style={{fontSize:11,padding:'4px 6px',width:'100%',
+                          background:p.coupangOptionId?'#fff8f0':'#fff'}}
+                        onChange={e=>updateProduct(p.id,'coupangOptionId',e.target.value)} />
+                    </td>
+                    <td style={{padding:'6px 8px',minWidth:80}}>
+                      <select className='inp' value={p.status||'활성'}
+                        style={{fontSize:11,padding:'4px 6px',width:'100%',minWidth:72}}
                         onChange={e=>updateProduct(p.id,'status',e.target.value)}>
                         {['활성','단종','검토중','신규'].map(s=><option key={s}>{s}</option>)}
                       </select>
