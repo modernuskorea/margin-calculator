@@ -103,6 +103,7 @@ function newProduct(s) {
 export default function App() {
   const [tab, setTab] = useState("calc");
   const [saveNotice, setSaveNotice] = useState("");
+  const [serverStatus, setServerStatus] = useState('idle'); // idle | syncing | ok | error
 
   const [settings, setSettings] = useState(() => {
     try { const s = localStorage.getItem("mc_settings_v3"); if (s) return JSON.parse(s); } catch {}
@@ -119,6 +120,19 @@ export default function App() {
 
   useEffect(() => { try { localStorage.setItem("mc_products_v3", JSON.stringify(products)); } catch {} }, [products]);
   useEffect(() => { try { localStorage.setItem("mc_history_v3", JSON.stringify(history.slice(0,50))); } catch {} }, [history]);
+
+  // ── 서버에서 히스토리 로드 (앱 시작 시) ──
+  useEffect(() => {
+    fetch('/api/db-history').then(r=>r.json()).then(d=>{
+      if (d.history?.length) {
+        setHistory(prev => {
+          const ids = new Set(prev.map(h=>h.id));
+          const merged = [...prev, ...d.history.filter(h=>!ids.has(h.id))];
+          return merged.sort((a,b)=>b.id-a.id);
+        });
+      }
+    }).catch(()=>{});
+  }, []);
 
   const saveSettings = () => {
     try { localStorage.setItem("mc_settings_v3", JSON.stringify(settings)); setSaveNotice("saved"); setTimeout(() => setSaveNotice(""), 2500); } catch {}
@@ -293,7 +307,15 @@ export default function App() {
             analysisStep={adAnalysisStep} setAnalysisStep={setAdAnalysisStep}
             overallAiText={adOverallAiText} setOverallAiText={setAdOverallAiText}
             overallAiOpen={adOverallAiOpen} setOverallAiOpen={setAdOverallAiOpen}
-            onSaveHistory={(item)=>setHistory(prev=>[item,...prev])}
+            onSaveHistory={(item)=>{
+              setHistory(prev=>[item,...prev]);
+              // 서버에도 저장 (팀원 공유)
+              fetch('/api/db-history',{
+                method:'POST',
+                headers:{'Content-Type':'application/json'},
+                body: JSON.stringify({item})
+              }).catch(()=>{});
+            }}
           />
         )}
 
@@ -303,7 +325,8 @@ export default function App() {
         )}
 
         {tab === "history" && (
-          <HistoryTab history={history} deleteHistory={deleteHistory} clearHistory={clearHistory} />
+          <HistoryTab history={history} deleteHistory={deleteHistory} clearHistory={clearHistory}
+            onViewDetail={(h)=>{ setTab('adreport'); }} />
         )}
 
         {tab === "settings" && (
@@ -914,11 +937,64 @@ function BudgetPlanner({ products, settings, buildParams, removeProductFromBudge
 }
 
 // ── 히스토리 탭 ──
-function HistoryTab({ history, deleteHistory, clearHistory }) {
+function HistoryTab({ history, deleteHistory, clearHistory, onViewDetail }) {
   const [compareItems, setCompareItems] = useState([]);
   const [dragOver, setDragOver] = useState(false);
   const [selected, setSelected] = useState(new Set());
-  const [filter, setFilter] = useState('all'); // all | margin | adreport
+  const [filter, setFilter] = useState('all'); // all | margin | adreport | actions
+  const [actions, setActions] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('mc_actions_v1')||'[]'); } catch { return []; }
+  });
+  const [newAction, setNewAction] = useState({ date:'', platform:'네이버', content:'' });
+  const [showActionForm, setShowActionForm] = useState(false);
+
+  useEffect(() => {
+    try { localStorage.setItem('mc_actions_v1', JSON.stringify(actions)); } catch {}
+  }, [actions]);
+
+  // 서버에서 액션 로드
+  useEffect(() => {
+    fetch('/api/db-actions').then(r=>r.json()).then(d=>{
+      if (d.actions?.length) {
+        setActions(prev => {
+          const ids = new Set(prev.map(a=>a.id));
+          const merged = [...prev, ...d.actions.filter(a=>!ids.has(a.id))];
+          return merged.sort((a,b)=>b.id-a.id);
+        });
+      }
+    }).catch(()=>{});
+  }, []);
+
+  const addAction = () => {
+    if (!newAction.content.trim()) return;
+    const action = {
+      id: Date.now(),
+      date: newAction.date || new Date().toLocaleDateString('ko-KR'),
+      platform: newAction.platform,
+      content: newAction.content.trim(),
+      createdAt: new Date().toLocaleString('ko-KR'),
+    };
+    setActions(prev => [action, ...prev]);
+    // 서버에도 저장 (팀원 공유)
+    fetch('/api/db-actions', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({action})
+    }).catch(()=>{});
+    setNewAction({ date:'', platform:'네이버', content:'' });
+    setShowActionForm(false);
+  };
+
+  const deleteAction = (id) => {
+    if (!window.confirm('이 액션 기록을 삭제할까요?')) return;
+    setActions(prev => prev.filter(a => a.id !== id));
+    // 서버에서도 삭제
+    fetch('/api/db-actions', {
+      method:'DELETE',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({id})
+    }).catch(()=>{});
+  };
 
   const filtered = history.filter(h => {
     if (filter === 'margin') return h.type !== 'adreport';
@@ -1047,40 +1123,118 @@ ${isAd ? generateAdReportHtml(h) : generateMarginReportHtml(h)}
     <div>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18}}>
         <div>
-          <h2 style={{margin:0,fontWeight:700,fontSize:20}}>히스토리 ({history.length}건)</h2>
-          <p style={{margin:"3px 0 0",color:"#666",fontSize:13}}>마진 계산 저장본 + 광고 분석 보고서</p>
+          <h2 style={{margin:0,fontWeight:700,fontSize:20}}>히스토리</h2>
+          <p style={{margin:"3px 0 0",color:"#666",fontSize:13}}>분석 기록 + 광고 액션 로그</p>
         </div>
-        <div style={{display:"flex",gap:8}}>
-          {/* 필터 */}
-          {['all','margin','adreport'].map(f=>(
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          {['all','margin','adreport','actions'].map(f=>(
             <button key={f} className={`btn ${filter===f?'btn-primary':'btn-ghost'}`}
               style={{fontSize:12,padding:"6px 14px"}} onClick={()=>setFilter(f)}>
-              {f==='all'?'전체':f==='margin'?'마진':f==='adreport'?'광고분석':''}
+              {f==='all'?`전체(${history.length})`:f==='margin'?'마진':f==='adreport'?'광고분석':`📋 액션로그(${actions.length})`}
             </button>
           ))}
-          {selected.size>0&&<button className="btn btn-danger" style={{fontSize:12}} onClick={deleteSelected}>선택삭제 ({selected.size})</button>}
-          {compareItems.length>0&&<button className="btn btn-ghost" style={{fontSize:12}} onClick={()=>setCompareItems([])}>비교초기화</button>}
-          {history.length>0&&<button className="btn btn-danger" style={{fontSize:12}} onClick={clearHistory}>전체삭제</button>}
+          {filter!=='actions'&&selected.size>0&&<button className="btn btn-danger" style={{fontSize:12}} onClick={deleteSelected}>선택삭제 ({selected.size})</button>}
+          {filter==='actions'&&<button className="btn btn-primary" style={{fontSize:12,background:'#276749'}} onClick={()=>setShowActionForm(true)}>+ 액션 추가</button>}
+          {filter!=='actions'&&history.length>0&&<button className="btn btn-danger" style={{fontSize:12}} onClick={clearHistory}>전체삭제</button>}
         </div>
       </div>
 
+      {/* ── 액션 추가 폼 ── */}
+      {filter==='actions'&&showActionForm&&(
+        <div className="card" style={{marginBottom:16,background:'#f0fff4',borderColor:'#86efac'}}>
+          <div style={{fontWeight:600,marginBottom:12,color:'#276749'}}>📋 광고 액션 기록</div>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 3fr auto',gap:10,alignItems:'end'}}>
+            <div>
+              <div style={{fontSize:12,color:'#666',marginBottom:4}}>날짜</div>
+              <input className="inp" type="date" value={newAction.date}
+                onChange={e=>setNewAction(p=>({...p,date:e.target.value}))} />
+            </div>
+            <div>
+              <div style={{fontSize:12,color:'#666',marginBottom:4}}>플랫폼</div>
+              <select className="inp" value={newAction.platform}
+                onChange={e=>setNewAction(p=>({...p,platform:e.target.value}))}>
+                {['네이버','쿠팡','애드부스트','전체','기타'].map(v=><option key={v}>{v}</option>)}
+              </select>
+            </div>
+            <div>
+              <div style={{fontSize:12,color:'#666',marginBottom:4}}>액션 내용</div>
+              <input className="inp" placeholder="예: [롤팩]키워드_상위 입찰가 150→200원 조정"
+                value={newAction.content}
+                onChange={e=>setNewAction(p=>({...p,content:e.target.value}))}
+                onKeyDown={e=>e.key==='Enter'&&addAction()} />
+            </div>
+            <div style={{display:'flex',gap:6}}>
+              <button className="btn btn-primary" style={{background:'#276749'}} onClick={addAction}>저장</button>
+              <button className="btn btn-ghost" onClick={()=>setShowActionForm(false)}>취소</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── 액션 로그 탭 ── */}
+      {filter==='actions'&&(
+        <div>
+          {!showActionForm&&actions.length===0&&(
+            <div className="card" style={{textAlign:'center',padding:'40px 0',color:'#bbb'}}>
+              <div style={{fontSize:32,marginBottom:8}}>📋</div>
+              <div style={{marginBottom:12}}>아직 액션 기록이 없습니다</div>
+              <button className="btn btn-primary" style={{background:'#276749'}} onClick={()=>setShowActionForm(true)}>+ 첫 액션 기록하기</button>
+            </div>
+          )}
+          {actions.length>0&&(
+            <div>
+              {/* 플랫폼별 그룹 */}
+              {['네이버','쿠팡','애드부스트','전체','기타'].map(platform=>{
+                const filtered = actions.filter(a=>a.platform===platform);
+                if (!filtered.length) return null;
+                const colors = {네이버:'#276749',쿠팡:'#9c4221',애드부스트:'#2c5282',전체:'#1a365d',기타:'#718096'};
+                const bgs = {네이버:'#f0fff4',쿠팡:'#fffaf0',애드부스트:'#ebf8ff',전체:'#f0f4ff',기타:'#f8f7f4'};
+                return (
+                  <div key={platform} style={{marginBottom:16}}>
+                    <div style={{fontWeight:600,fontSize:14,color:colors[platform],
+                      marginBottom:8,display:'flex',alignItems:'center',gap:8}}>
+                      <span style={{width:10,height:10,borderRadius:'50%',background:colors[platform],display:'inline-block'}}></span>
+                      {platform} <span style={{fontWeight:400,fontSize:12,color:'#999'}}>({filtered.length}건)</span>
+                    </div>
+                    <div style={{display:'flex',flexDirection:'column',gap:8}}>
+                      {filtered.map(a=>(
+                        <div key={a.id} style={{display:'flex',alignItems:'center',gap:12,
+                          background:bgs[platform],border:`1px solid ${colors[platform]}30`,
+                          borderRadius:10,padding:'10px 14px'}}>
+                          <div style={{fontWeight:600,fontSize:12,color:'#999',flexShrink:0,minWidth:80}}>{a.date}</div>
+                          <div style={{flex:1,fontSize:13,color:'#1a1a1a'}}>{a.content}</div>
+                          <div style={{fontSize:11,color:'#bbb',flexShrink:0}}>{a.createdAt}</div>
+                          <button style={{background:'none',border:'none',cursor:'pointer',color:'#bbb',fontSize:14,flexShrink:0}}
+                            onClick={()=>deleteAction(a.id)}>×</button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* 드래그 비교 영역 */}
-      <div style={{marginBottom:16,borderRadius:18,padding:22,minHeight:100,
+      {filter!=='actions'&&(
+      <div style={{marginBottom:16,borderRadius:18,padding:22,minHeight:80,
         border:`1.5px dashed ${dragOver?"#2c5282":"#eae7df"}`,
         background:dragOver?"#eef2ff":"#fff",transition:"all .15s"}}
         onDragOver={e=>{e.preventDefault();setDragOver(true);}}
         onDragLeave={()=>setDragOver(false)}
         onDrop={e=>{e.preventDefault();setDragOver(false);try{const item=JSON.parse(e.dataTransfer.getData("text/plain"));if(!compareItems.find(c=>c.id===item.id))setCompareItems(prev=>[...prev,item].slice(0,4));}catch{}}}>
-        <div style={{fontWeight:600,marginBottom:10}}>비교 영역 <span style={{fontSize:12,color:"#999",fontWeight:400}}>— 드래그하거나 "비교" 버튼으로 추가 (최대 4개)</span></div>
+        <div style={{fontWeight:600,marginBottom:8,fontSize:13}}>비교 영역 <span style={{fontSize:12,color:"#999",fontWeight:400}}>— 드래그하거나 "비교" 버튼으로 추가 (최대 4개)</span></div>
         {compareItems.length===0
-          ?<div style={{color:"#bbb",fontSize:13,textAlign:"center",padding:"14px 0"}}>카드를 여기로 드래그하세요</div>
+          ?<div style={{color:"#bbb",fontSize:13,textAlign:"center",padding:"8px 0"}}>카드를 여기로 드래그하세요</div>
           :<div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:12}}>
             {compareItems.map(item=>(
               <div key={item.id} style={{background:"#f0f4ff",border:"1.5px solid #c7d2fe",borderRadius:11,padding:13,position:"relative"}}>
                 <button style={{position:"absolute",top:8,right:10,background:"none",border:"none",cursor:"pointer",color:"#bbb",fontSize:16}}
                   onClick={()=>setCompareItems(prev=>prev.filter(c=>c.id!==item.id))}>×</button>
                 <div style={{fontWeight:600,fontSize:13,color:"#312e81",marginBottom:4}}>
-                  {item.type==='adreport'?'📊':' 💰'} {item.name||item.keyword||"미지정"}
+                  {item.type==='adreport'?'📊':'💰'} {item.name||item.keyword||"미지정"}
                 </div>
                 <div style={{fontSize:11,color:"#999",marginBottom:8}}>{item.savedAt}</div>
                 {item.type==='adreport'
@@ -1096,9 +1250,10 @@ ${isAd ? generateAdReportHtml(h) : generateMarginReportHtml(h)}
             ))}
           </div>}
       </div>
+      )}
 
       {/* 히스토리 목록 */}
-      {filtered.length===0
+      {filter!=='actions'&&(filtered.length===0
         ?<div className="card" style={{textAlign:"center",padding:"50px 0",color:"#bbb"}}>
           <div style={{fontSize:36,marginBottom:10}}>{filter==='adreport'?'📊':'📋'}</div>
           <div>{filter==='adreport'?'저장된 광고 분석 보고서가 없습니다':'저장된 항목이 없습니다'}</div>
@@ -1110,9 +1265,13 @@ ${isAd ? generateAdReportHtml(h) : generateMarginReportHtml(h)}
             return (
               <div key={h.id} className="card" draggable
                 onDragStart={e=>e.dataTransfer.setData("text/plain",JSON.stringify(h))}
-                style={{cursor:"grab",userSelect:"none",
+                onClick={()=>isAd&&onViewDetail&&onViewDetail(h)}
+                style={{cursor:isAd?"pointer":"grab",userSelect:"none",
                   border:isSelected?"1.5px solid #2c5282":"1.5px solid #eae7df",
-                  background:isSelected?"#eef2ff":"#fff"}}>
+                  background:isSelected?"#eef2ff":"#fff",
+                  transition:'box-shadow .15s'}}
+                onMouseEnter={e=>{if(isAd)e.currentTarget.style.boxShadow='0 4px 16px rgba(0,0,0,.1)';}}
+                onMouseLeave={e=>{e.currentTarget.style.boxShadow='none';}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
                   <div style={{display:"flex",alignItems:"center",gap:7}}>
                     <input type="checkbox" checked={isSelected}
@@ -1121,6 +1280,7 @@ ${isAd ? generateAdReportHtml(h) : generateMarginReportHtml(h)}
                     <div>
                       <div style={{fontWeight:600,fontSize:14}}>
                         {isAd?'📊':'💰'} {h.name||h.keyword||"미지정"}
+                        {isAd&&<span style={{fontSize:10,color:'#2c5282',marginLeft:6,background:'#ebf8ff',padding:'1px 6px',borderRadius:10}}>클릭하여 열기</span>}
                       </div>
                       <div style={{fontSize:10,color:"#999",marginTop:2}}>{h.savedAt}</div>
                     </div>
@@ -1160,7 +1320,7 @@ ${isAd ? generateAdReportHtml(h) : generateMarginReportHtml(h)}
               </div>
             );
           })}
-        </div>}
+        </div>)}
     </div>
   );
 }
@@ -2243,31 +2403,100 @@ function ProductDBTab({ settings }) {
   const [editId, setEditId] = useState(null);
   const [searchQ, setSearchQ] = useState('');
   const [filterCat, setFilterCat] = useState('전체');
+  const [serverSync, setServerSync] = useState('idle'); // idle | loading | saving | ok | error
   const fileRef = useState(null)[0];
 
   useEffect(() => {
     try { localStorage.setItem('mc_productdb_v1', JSON.stringify(dbProducts)); } catch {}
   }, [dbProducts]);
 
+  // 앱 시작 시 서버에서 DB 로드
+  useEffect(() => {
+    setServerSync('loading');
+    fetch('/api/db-products')
+      .then(r=>r.json())
+      .then(d=>{
+        if (d.products?.length) {
+          setDbProducts(d.products);
+          setServerSync('ok');
+        } else {
+          setServerSync('idle');
+        }
+      })
+      .catch(()=>setServerSync('error'));
+  }, []);
+
+  // 서버에 저장하는 함수
+  const saveToServer = (products) => {
+    setServerSync('saving');
+    fetch('/api/db-products', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({products})
+    })
+    .then(r=>r.json())
+    .then(d=>{ setServerSync(d.ok?'ok':'error'); setTimeout(()=>setServerSync('idle'),3000); })
+    .catch(()=>{ setServerSync('error'); setTimeout(()=>setServerSync('idle'),3000); });
+  };
+
   const parseEcountCSV = (text) => {
-    const lines = text.split('\n');
-    const header = lines[0].split(',').map(h=>h.replace(/"/g,'').trim());
-    const rows = lines.slice(1).filter(l=>l.trim()).map(l=>{
-      const cols = l.split(',').map(c=>c.replace(/"/g,'').trim());
-      const obj = {};
-      header.forEach((h,i)=>{ obj[h]=cols[i]||''; });
-      return obj;
-    }).filter(r=>r['품목코드']);  // 입고단가 필터 제거 — 전체 품목 포함
-    return rows.map(r=>({
-      id: r['품목코드'],
-      code: r['품목코드'],
-      name: (r['품목명']||'')+(r['규격']?' '+r['규격']:''),
-      cost: parseFloat(r['입고단가'])||0,
-      category: getCategoryFromCode(r['품목코드']),
-      naverPrice: 0, coupangPrice: 0, openmarketPrice: 0,
-      naverGroup: '', shopId: '', naverShopId: '', coupangOptionId: '',
-      status: '활성', memo: '',
-    }));
+    const clean = text.replace(/^\uFEFF/, '');
+    // CSV 파싱 (따옴표 안 줄바꿈 처리)
+    const parseRows = (str) => {
+      const rows = []; let row = [], cur = '', inQ = false;
+      for (let i = 0; i < str.length; i++) {
+        const ch = str[i];
+        if (ch === '"') { inQ = !inQ; }
+        else if (ch === ',' && !inQ) { row.push(cur); cur = ''; }
+        else if ((ch === '\n' || (ch === '\r' && str[i+1] === '\n')) && !inQ) {
+          if (ch === '\r') i++;
+          row.push(cur); rows.push(row); row = []; cur = '';
+        } else { cur += ch; }
+      }
+      if (cur || row.length) { row.push(cur); rows.push(row); }
+      return rows;
+    };
+    const rows = parseRows(clean);
+    if (!rows.length) return [];
+
+    // 헤더 행 찾기 (품목코드 또는 No 포함된 행)
+    let hIdx = rows.findIndex(r => r.some(c => c.replace(/\n/g,'').includes('품목코드') || c.trim()==='No'));
+    if (hIdx < 0) hIdx = 0;
+    const header = rows[hIdx].map(h => h.replace(/\n/g,' ').trim());
+
+    const col = (...names) => {
+      for (const n of names) {
+        const i = header.findIndex(h => h.replace(/\s/g,'').includes(n.replace(/\s/g,'')));
+        if (i >= 0) return i;
+      }
+      return -1;
+    };
+
+    const toNum = v => parseFloat(String(v||'').replace(/,/g,'').replace(/[원%]/g,'').trim()) || 0;
+    const toStr = v => String(v||'').replace(/\n/g,' ').trim();
+
+    // 헤더 다음부터 데이터, 설명 행 스킵
+    return rows.slice(hIdx + 1)
+      .filter(r => {
+        const code = toStr(r[col('품목코드')] ?? '');
+        return code && !code.includes('이카운트') && code !== '자동' && !code.includes('ERP코드');
+      })
+      .map(r => ({
+        id:              toStr(r[col('품목코드')] ?? ''),
+        code:            toStr(r[col('품목코드')] ?? ''),
+        name:            toStr(r[col('상품명')] ?? ''),
+        category:        toStr(r[col('카테고리')] ?? ''),
+        cost:            toNum(r[col('원가')] ?? 0),
+        naverPrice:      toNum(r[col('네이버판매가','네이버 판매가')] ?? 0),
+        coupangPrice:    toNum(r[col('쿠팡판매가','쿠팡 판매가')] ?? 0),
+        openmarketPrice: toNum(r[col('오픈마켓판매가','오픈마켓 판매가')] ?? 0),
+        status:          toStr(r[col('상태')] ?? '') || '활성',
+        naverGroup:      toStr(r[col('광고그룹명','네이버광고그룹')] ?? ''),
+        shopId:          toStr(r[col('쇼핑몰상품ID','쇼핑몰 상품ID')] ?? ''),
+        naverShopId:     toStr(r[col('네이버쇼핑상품ID','네이버쇼핑 상품ID')] ?? ''),
+        coupangOptionId: toStr(r[col('쿠팡옵션ID','쿠팡 옵션ID')] ?? ''),
+        memo: '',
+      })).filter(r => r.code);
   };
 
   // 품목코드에서 브랜드 > 카테고리 자동 생성
@@ -2293,17 +2522,17 @@ function ProductDBTab({ settings }) {
 
   const handleUpload = (e) => {
     const file = e.target.files[0]; if (!file) return;
+    const ext = file.name.split('.').pop().toLowerCase();
     const reader = new FileReader();
-    reader.onload = (ev) => {
-      const rows = parseEcountCSV(ev.target.result);
-      if (!rows.length) { alert('데이터를 파싱할 수 없습니다. 이카운트 CSV 형식인지 확인하세요.'); return; }
-      if (window.confirm(`${rows.length}개 품목을 불러옵니다. 기존 DB와 병합할까요? (취소 시 전체 교체)`)) {
+
+    const processRows = (rows) => {
+      if (!rows.length) { alert('데이터를 읽을 수 없습니다. 파일 형식을 확인하세요.'); return; }
+      if (window.confirm(`${rows.length}개 품목을 불러옵니다.\n기존 DB와 병합할까요?\n(취소 시 전체 교체)`)) {
         setDbProducts(prev => {
           const existing = new Map(prev.map(p=>[p.code,p]));
           rows.forEach(r => {
             if (existing.has(r.code)) {
-              // 원가만 업데이트, 나머지 보존
-              existing.get(r.code).cost = r.cost;
+              existing.get(r.code).cost = r.cost; // 원가만 갱신
             } else {
               existing.set(r.code, r);
             }
@@ -2314,7 +2543,88 @@ function ProductDBTab({ settings }) {
         setDbProducts(rows);
       }
     };
-    reader.readAsText(file, 'utf-8');
+
+    if (ext === 'xlsx' || ext === 'xls') {
+      // xlsx — SheetJS로 파싱
+      reader.onload = (ev) => {
+        const loadXlsx = (XLSX) => {
+          try {
+            const wb = XLSX.read(ev.target.result, { type: 'array' });
+            const ws = wb.Sheets[wb.SheetNames[0]];
+            const raw = XLSX.utils.sheet_to_json(ws, { defval: '', header: 1 });
+            if (!raw.length) { alert('데이터가 없습니다.'); return; }
+
+            // 이카운트 형식 감지: 헤더 행에 '품목코드' 있는지 확인
+            let headerIdx = -1;
+            for (let i = 0; i < Math.min(5, raw.length); i++) {
+              if (raw[i].includes('품목코드')) { headerIdx = i; break; }
+            }
+
+            if (headerIdx >= 0) {
+              // 이카운트 CSV/xlsx 형식
+              const header = raw[headerIdx].map(h => String(h).trim());
+              const dataRows = raw.slice(headerIdx + 1).filter(r => r[header.indexOf('품목코드')]);
+              const rows = dataRows.map(r => {
+                const obj = {};
+                header.forEach((h, i) => { obj[h] = r[i] !== undefined ? String(r[i]).trim() : ''; });
+                return {
+                  id: obj['품목코드'],
+                  code: obj['품목코드'],
+                  name: (obj['품목명']||'') + (obj['규격'] ? ' ' + obj['규격'] : ''),
+                  cost: parseFloat(obj['입고단가'])||0,
+                  category: getCategoryFromCode(obj['품목코드']),
+                  naverPrice: 0, coupangPrice: 0, openmarketPrice: 0,
+                  naverGroup: '', shopId: '', naverShopId: '', coupangOptionId: '',
+                  status: '활성', memo: '',
+                };
+              }).filter(r => r.code);
+              processRows(rows);
+            } else {
+              // 상품마스터DB xlsx 형식 (헤더가 2~3행)
+              // 1행: No, 품목코드(ERP), 상품명, 카테고리, 원가, 네이버가, ...
+              const json = XLSX.utils.sheet_to_json(ws, { defval: '', range: 1 }); // 2행부터
+              if (!json.length) { alert('데이터가 없습니다.'); return; }
+              const rows = json.map(r => ({
+                id: String(r['품목코드\n(ERP)']||r['품목코드']||'').trim(),
+                code: String(r['품목코드\n(ERP)']||r['품목코드']||'').trim(),
+                name: String(r['상품명']||'').trim(),
+                cost: parseFloat(r['원가\n(VAT포함)']||r['원가']||0),
+                category: String(r['카테고리']||'').trim(),
+                naverPrice: parseFloat(r['네이버\n판매가']||r['네이버가']||0),
+                coupangPrice: parseFloat(r['쿠팡\n판매가']||r['쿠팡가']||0),
+                openmarketPrice: parseFloat(r['오픈마켓\n판매가']||r['오픈마켓가']||0),
+                naverGroup: String(r['네이버\n광고그룹명']||'').trim(),
+                shopId: String(r['쇼핑몰\n상품ID']||'').trim(),
+                naverShopId: String(r['네이버쇼핑\n상품ID']||'').trim(),
+                coupangOptionId: String(r['쿠팡\n옵션ID']||'').trim(),
+                status: String(r['상태']||'활성').trim(),
+                memo: String(r['비고']||'').trim(),
+              })).filter(r => r.code && r.code !== 'NaN');
+              processRows(rows);
+            }
+          } catch(err) { alert('파일 읽기 오류: ' + err.message); }
+        };
+
+        if (window.XLSX) {
+          loadXlsx(window.XLSX);
+        } else {
+          const script = document.createElement('script');
+          script.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+          script.onload = () => loadXlsx(window.XLSX);
+          document.head.appendChild(script);
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    } else {
+      // CSV
+      reader.onload = (ev) => {
+        try {
+          const rows = parseEcountCSV(ev.target.result);
+          processRows(rows);
+        } catch(err) { alert('CSV 읽기 오류: ' + err.message); }
+      };
+      reader.readAsText(file, 'utf-8');
+    }
     e.target.value = '';
   };
 
@@ -2379,13 +2689,23 @@ function ProductDBTab({ settings }) {
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:18}}>
         <div>
           <h2 style={{margin:0,fontWeight:700,fontSize:20}}>상품 DB</h2>
-          <p style={{margin:'3px 0 0',color:'#666',fontSize:13}}>이카운트 CSV 업로드 → 원가 자동 입력 | 판매가·광고 매핑ID 직접 입력</p>
+          <p style={{margin:'3px 0 0',color:'#666',fontSize:13}}>
+            이카운트 xlsx/CSV 업로드 → 원가 자동 입력 | 판매가·광고 매핑ID 직접 입력
+            {serverSync==='loading'&&<span style={{marginLeft:8,color:'#d97706',fontSize:11}}>⏳ 서버에서 불러오는 중...</span>}
+            {serverSync==='saving'&&<span style={{marginLeft:8,color:'#d97706',fontSize:11}}>⏳ 서버에 저장 중...</span>}
+            {serverSync==='ok'&&<span style={{marginLeft:8,color:'#1a6b3a',fontSize:11}}>✅ 서버 동기화 완료</span>}
+            {serverSync==='error'&&<span style={{marginLeft:8,color:'#c53030',fontSize:11}}>⚠️ 서버 연결 오류</span>}
+          </p>
         </div>
-        <div style={{display:'flex',gap:8}}>
+        <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
           <label style={{cursor:'pointer'}}>
-            <input type='file' accept='.csv' style={{display:'none'}} onChange={handleUpload} />
-            <span className='btn btn-ghost' style={{fontSize:12,display:'inline-block'}}>📥 이카운트 CSV 업로드</span>
+            <input type='file' accept='.csv,.xlsx,.xls' style={{display:'none'}} onChange={handleUpload} />
+            <span className='btn btn-ghost' style={{fontSize:12,display:'inline-block'}}>📥 이카운트 파일 업로드</span>
           </label>
+          <button className='btn btn-primary' style={{fontSize:12,background:'#276749'}}
+            onClick={()=>saveToServer(dbProducts)} disabled={serverSync==='saving'||!dbProducts.length}>
+            ☁️ 서버에 저장 (팀원 공유)
+          </button>
           <button className='btn btn-ghost' style={{fontSize:12}} onClick={exportCSV}>📤 CSV 내보내기</button>
           <button className='btn btn-primary' style={{fontSize:12}} onClick={addProduct}>+ 상품 추가</button>
           {dbProducts.length>0&&<button className='btn btn-danger' style={{fontSize:12}}
