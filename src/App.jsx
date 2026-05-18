@@ -1687,58 +1687,74 @@ function AdReportTab({
 
     if (type === 'naver') {
       const toN = v => parseFloat(String(v).replace(/,/g,'')) || 0;
-      const totalCost = rows.reduce((s,r) => s + toN(r['총비용']), 0);
-      const totalClick = rows.reduce((s,r) => s + toN(r['클릭수']), 0);
-      const totalConv = rows.reduce((s,r) => s + toN(r['구매완료 전환수']), 0);
-      const totalSales = rows.reduce((s,r) => s + toN(r['구매완료 전환매출액(원)']), 0);
-      const wasteRows = rows.filter(r => toN(r['총비용'])>0 && toN(r['구매완료 전환수'])===0);
-      const wasteCost = wasteRows.reduce((s,r) => s + toN(r['총비용']), 0);
-      return { totalCost, totalClick, totalConv, totalSales,
-        roas: totalCost>0 ? totalSales/totalCost*100 : 0,
-        cpc: totalClick>0 ? totalCost/totalClick : 0,
-        wasteCost, wasteRows: wasteRows.length,
-        label:'네이버 검색광고', color:'#276749', bg:'#f0fff4' };
+      const totalCost   = rows.reduce((s,r) => s + toN(r['총비용']), 0);
+      const totalClick  = rows.reduce((s,r) => s + toN(r['클릭수']), 0);
+      const totalImp    = rows.reduce((s,r) => s + toN(r['노출수']), 0);
+      const totalConv   = rows.reduce((s,r) => s + toN(r['구매완료 전환수']), 0);
+      const totalSales  = rows.reduce((s,r) => s + toN(r['구매완료 전환매출액(원)']), 0);
+      const wasteRows   = rows.filter(r => toN(r['총비용'])>0 && toN(r['구매완료 전환수'])===0);
+      const wasteCost   = wasteRows.reduce((s,r) => s + toN(r['총비용']), 0);
+      return {
+        totalCost, totalClick, totalImp, totalConv, totalSales, wasteCost,
+        wasteRows: wasteRows.length,
+        roas:    totalCost>0  ? totalSales/totalCost*100  : 0,
+        cpc:     totalClick>0 ? totalCost/totalClick      : 0,
+        cpm:     totalImp>0   ? totalCost/totalImp*1000   : 0,
+        ctr:     totalImp>0   ? totalClick/totalImp*100   : 0,
+        cvr:     totalClick>0 ? totalConv/totalClick*100  : 0,
+        label:'네이버 검색광고', color:'#276749', bg:'#f0fff4',
+      };
     }
     if (type === 'coupang') {
       const toN = v => {
         if (typeof v === 'number') return v;
         return parseFloat(String(v).replace(/,/g,'').replace(/%/g,'').trim()) || 0;
       };
-      // 실제 컬럼명: 광고비, 클릭수, 총 주문수(1일), 총 전환매출액(1일), 총 전환매출액(14일)
       const totalCost    = rows.reduce((s,r) => s + toN(r['광고비']), 0);
       const totalClick   = rows.reduce((s,r) => s + toN(r['클릭수']), 0);
+      const totalImp     = rows.reduce((s,r) => s + toN(r['노출수']), 0);
       const totalOrder   = rows.reduce((s,r) => s + toN(r['총 주문수(1일)']), 0);
       const totalSales14 = rows.reduce((s,r) => s + toN(r['총 전환매출액(14일)']), 0);
       const totalSales1  = rows.reduce((s,r) => s + toN(r['총 전환매출액(1일)']), 0);
-      // 검색/비검색 영역
       const areaKey = Object.keys(rows[0]||{}).find(k => k.includes('노출 지면') || k.includes('지면')) || '광고 노출 지면';
       const searchRows    = rows.filter(r => String(r[areaKey]).includes('검색 영역') && !String(r[areaKey]).includes('비검색'));
       const nonSearchRows = rows.filter(r => String(r[areaKey]).includes('비검색'));
-      const searchCost    = searchRows.reduce((s,r) => s+toN(r['광고비']),0);
-      const searchSales   = searchRows.reduce((s,r) => s+toN(r['총 전환매출액(14일)']),0);
-      const nonSearchCost = nonSearchRows.reduce((s,r) => s+toN(r['광고비']),0);
-      const nonSearchSales= nonSearchRows.reduce((s,r) => s+toN(r['총 전환매출액(14일)']),0);
-      return { totalCost, totalClick, totalOrder, totalSales14, totalSales1,
-        roas: totalCost>0 ? totalSales14/totalCost*100 : 0,
-        cpc: totalClick>0 ? totalCost/totalClick : 0,
+      const searchCost    = searchRows.reduce((s,r)=>s+toN(r['광고비']),0);
+      const searchSales   = searchRows.reduce((s,r)=>s+toN(r['총 전환매출액(14일)']),0);
+      const nonSearchCost = nonSearchRows.reduce((s,r)=>s+toN(r['광고비']),0);
+      const nonSearchSales= nonSearchRows.reduce((s,r)=>s+toN(r['총 전환매출액(14일)']),0);
+      return {
+        totalCost, totalClick, totalImp, totalOrder, totalSales14, totalSales1,
+        searchCost, nonSearchCost,
+        roas:         totalCost>0  ? totalSales14/totalCost*100    : 0,
+        cpc:          totalClick>0 ? totalCost/totalClick           : 0,
+        cpm:          totalImp>0   ? totalCost/totalImp*1000        : 0,
+        ctr:          totalImp>0   ? totalClick/totalImp*100        : 0,
+        cvr:          totalClick>0 ? totalOrder/totalClick*100      : 0,
         searchRoas:    searchCost>0    ? searchSales/searchCost*100       : 0,
         nonSearchRoas: nonSearchCost>0 ? nonSearchSales/nonSearchCost*100 : 0,
-        searchCost, nonSearchCost,
-        label:'쿠팡 광고', color:'#9c4221', bg:'#fffaf0' };
+        label:'쿠팡 광고', color:'#9c4221', bg:'#fffaf0',
+      };
     }
     if (type === 'adboost') {
       const toN = v => parseFloat(String(v).replace(/,/g,'').replace(/%/g,'')) || 0;
-      const totalCost = rows.reduce((s,r) => s + toN(r['총비용']), 0);
+      const totalCost  = rows.reduce((s,r) => s + toN(r['총비용']), 0);
       const totalClick = rows.reduce((s,r) => s + toN(r['클릭수']), 0);
-      const totalConv = rows.reduce((s,r) => s + toN(r['구매완료 수']), 0);
+      const totalImp   = rows.reduce((s,r) => s + toN(r['노출수']), 0);
+      const totalConv  = rows.reduce((s,r) => s + toN(r['구매완료 수']), 0);
       const totalSales = rows.reduce((s,r) => s + toN(r['구매완료 전환매출액']), 0);
-      const wasteRows = rows.filter(r => toN(r['총비용'])>0 && toN(r['구매완료 수'])===0);
-      const wasteCost = wasteRows.reduce((s,r) => s+toN(r['총비용']),0);
-      return { totalCost, totalClick, totalConv, totalSales,
-        roas: totalCost>0 ? totalSales/totalCost*100 : 0,
-        cpc: totalClick>0 ? totalCost/totalClick : 0,
-        wasteCost, wasteRows: wasteRows.length,
-        label:'네이버 애드부스트', color:'#2c5282', bg:'#ebf8ff' };
+      const wasteRows  = rows.filter(r => toN(r['총비용'])>0 && toN(r['구매완료 수'])===0);
+      const wasteCost  = wasteRows.reduce((s,r) => s+toN(r['총비용']),0);
+      return {
+        totalCost, totalClick, totalImp, totalConv, totalSales, wasteCost,
+        wasteRows: wasteRows.length,
+        roas:  totalCost>0  ? totalSales/totalCost*100  : 0,
+        cpc:   totalClick>0 ? totalCost/totalClick      : 0,
+        cpm:   totalImp>0   ? totalCost/totalImp*1000   : 0,
+        ctr:   totalImp>0   ? totalClick/totalImp*100   : 0,
+        cvr:   totalClick>0 ? totalConv/totalClick*100  : 0,
+        label:'네이버 애드부스트', color:'#2c5282', bg:'#ebf8ff',
+      };
     }
     return null;
   };
@@ -3118,18 +3134,24 @@ function CompareChart({ adItems, fmt, pColor }) {
   const [compareAILoading, setCompareAILoading] = useState(false);
 
   const METRICS = [
-    {key:'roas',      label:'ROAS',   unit:'%',  color:'#2c5282', platforms:['naver','coupang','adboost'], inverted:false},
-    {key:'totalCost', label:'광고비',  unit:'원', color:'#c53030', platforms:['naver','coupang','adboost'], inverted:true},
-    {key:'totalConv', label:'전환수',  unit:'건', color:'#276749', platforms:['naver','adboost'],           inverted:false},
-    {key:'wasteCost', label:'낭비비용', unit:'원', color:'#d97706', platforms:['naver','adboost'],           inverted:true},
-    {key:'cpc',       label:'CPC',    unit:'원', color:'#9c4221', platforms:['naver','coupang','adboost'], inverted:true},
+    {key:'totalCost',  label:'총 광고비',     unit:'원', color:'#c53030', platforms:['naver','coupang','adboost'], inverted:true},
+    {key:'totalImp',   label:'노출수',        unit:'회', color:'#718096', platforms:['naver','coupang','adboost'], inverted:false},
+    {key:'cpm',        label:'평균 CPM',      unit:'원', color:'#9c4221', platforms:['naver','coupang','adboost'], inverted:true},
+    {key:'totalClick', label:'클릭수',        unit:'회', color:'#2c5282', platforms:['naver','coupang','adboost'], inverted:false},
+    {key:'cpc',        label:'평균 CPC',      unit:'원', color:'#d97706', platforms:['naver','coupang','adboost'], inverted:true},
+    {key:'ctr',        label:'클릭률',        unit:'%',  color:'#6b46c1', platforms:['naver','coupang','adboost'], inverted:false},
+    {key:'totalSales', label:'구매완료금액',   unit:'원', color:'#1a6b3a', platforms:['naver','adboost'],          inverted:false,
+      altKeys:{coupang:'totalSales14'}},
+    {key:'cvr',        label:'구매전환율',    unit:'%',  color:'#276749', platforms:['naver','coupang','adboost'], inverted:false},
+    {key:'roas',       label:'ROAS',         unit:'%',  color:'#2c5282', platforms:['naver','coupang','adboost'], inverted:false},
   ];
   const PC = {naver:'#276749',coupang:'#9c4221',adboost:'#2c5282'};
   const PL = {naver:'네이버',coupang:'쿠팡',adboost:'애드부스트'};
   const m = METRICS.find(x=>x.key===activeMetric);
 
   const chartData = m.platforms.map(p=>{
-    const vals = adItems.map(item=>item.summary?.[p]?.[m.key]||0);
+    const dataKey = (m.altKeys && m.altKeys[p]) ? m.altKeys[p] : m.key;
+    const vals = adItems.map(item=>item.summary?.[p]?.[dataKey]||0);
     return {platform:p, vals};
   }).filter(d=>d.vals.some(v=>v>0));
 
@@ -3140,7 +3162,7 @@ function CompareChart({ adItems, fmt, pColor }) {
     const summary = adItems.map((item,i)=>
       `[${i===0?'이전':'최신'} - ${item.savedAt?.slice(0,10)}]\n`+
       Object.entries(item.summary||{}).filter(([,v])=>v).map(([k,s])=>
-        `${PL[k]||k}: 광고비₩${fmt(s.totalCost||0)} ROAS${(s.roas||0).toFixed(0)}% 전환${fmt(s.totalConv||0)}건 낭비₩${fmt(s.wasteCost||0)}`
+        `${PL[k]||k}: 광고비₩${fmt(s.totalCost||0)} 노출${fmt(s.totalImp||0)}회 클릭${fmt(s.totalClick||0)}회 CPC₩${fmt(s.cpc||0)} CTR${(s.ctr||0).toFixed(2)}% CVR${(s.cvr||0).toFixed(2)}% 전환매출₩${fmt(s.totalSales||s.totalSales14||0)} ROAS${(s.roas||0).toFixed(0)}%`
       ).join('\n')
     ).join('\n\n');
     try {
@@ -3195,7 +3217,12 @@ function CompareChart({ adItems, fmt, pColor }) {
                   const diff = prev!=null?v-prev:null;
                   const isGood = diff==null?null:(m.inverted?(diff<=0):(diff>=0));
                   const diffColor = diff===0||diff==null?"#999":isGood?"#1a6b3a":"#c53030";
-                  const fmtV = v => m.unit==='%'?`${v.toFixed(0)}%`:m.unit==='원'?`₩${fmt(v)}`:fmt(v)+m.unit;
+                  const fmtV = v => {
+                    if (m.unit==='%') return `${v.toFixed(1)}%`;
+                    if (m.unit==='원') return `₩${fmt(v)}`;
+                    if (m.unit==='회') return `${fmt(Math.round(v))}회`;
+                    return fmt(v)+m.unit;
+                  };
                   return (
                     <div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",maxWidth:100}}>
                       {diff!=null?(
