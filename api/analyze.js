@@ -1,4 +1,4 @@
-const handler = async (req, res) => {
+export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
@@ -22,23 +22,16 @@ const handler = async (req, res) => {
       body: JSON.stringify({
         model: "llama-3.1-8b-instant",
         messages: [{ role: "user", content: prompt }],
-        max_tokens: 1000,
+        max_tokens: 1200,
         temperature: 0.7,
       }),
     });
 
     const data = await response.json();
-
-    if (!response.ok) {
-      return res.status(response.status).json({ error: data.error?.message || "Groq 오류" });
-    }
-
+    if (!response.ok) return res.status(response.status).json({ error: data.error?.message || "Groq 오류" });
     const result = data.choices?.[0]?.message?.content || "결과 없음";
     return res.status(200).json({ result });
-
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
-};
-
-module.exports = handler;
+}
