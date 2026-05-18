@@ -84,6 +84,56 @@ const fmt = (n) => {
 const parse = (v) => Number(String(v).replace(/[^0-9.-]/g, "")) || 0;
 const pColor = (v) => v > 0 ? "#1a6b3a" : v < 0 ? "#c53030" : "#666";
 
+// 비교 보고서 HTML 다운로드
+function downloadCompareReport(compareItems, fmt) {
+  const adItems = [...compareItems.filter(c=>c.type==='adreport')].sort((a,b)=>a.id-b.id);
+  if (adItems.length < 2) return;
+  const platforms = ['naver','coupang','adboost'];
+  const pLabels = {naver:'🟢 네이버 검색광고',coupang:'🟠 쿠팡 광고',adboost:'🔵 네이버 애드부스트'};
+  const metrics = [
+    {key:'totalCost', label:'총 광고비',  unit:'원', inverted:true},
+    {key:'roas',      label:'ROAS',       unit:'%',  inverted:false},
+    {key:'totalConv', label:'전환수',     unit:'건', inverted:false},
+    {key:'wasteCost', label:'낭비비용',   unit:'원', inverted:true},
+    {key:'cpc',       label:'평균 CPC',   unit:'원', inverted:true},
+  ];
+  const fmtV = (v, unit) => unit==='%'?`${(v||0).toFixed(0)}%`:unit==='원'?`₩${fmt(v||0)}`:fmt(v||0)+unit;
+  const rows = platforms.flatMap(p=>metrics.map(m=>{
+    const vals = adItems.map(item=>item.summary?.[p]?.[m.key]||0);
+    if (vals.every(v=>v===0)) return null;
+    const first=vals[0], last=vals[vals.length-1], diff=last-first;
+    const pct = first!==0?Math.round(diff/Math.abs(first)*100):0;
+    const isGood = m.inverted?(diff<=0):(diff>=0);
+    const arrow = diff===0?'━':isGood?'▲':'▼';
+    const color = diff===0?'#666':isGood?'#1a6b3a':'#c53030';
+    return `<tr><td style="padding:6px 10px;color:#555">${pLabels[p]} ${m.label}</td>`+
+      vals.map(v=>`<td style="padding:6px 10px;text-align:right;font-family:monospace">${fmtV(v,m.unit)}</td>`).join('')+
+      `<td style="padding:6px 10px;text-align:right;font-weight:700;color:${color}">${arrow}${fmtV(Math.abs(diff),m.unit)} (${pct>0?'+':''}${pct}%)</td></tr>`;
+  })).filter(Boolean).join('');
+
+  const html = `<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8">
+<title>광고 성과 비교 보고서</title>
+<style>body{font-family:'맑은 고딕',sans-serif;color:#1a1a1a;padding:32px;max-width:900px;margin:0 auto;font-size:13px}
+h1{color:#1a365d;font-size:20px;border-bottom:3px solid #1a365d;padding-bottom:10px}
+table{width:100%;border-collapse:collapse;margin:12px 0}
+th{background:#1a365d;color:#fff;padding:7px 10px;text-align:left;font-size:12px}
+td{border-bottom:1px solid #eae7df}tr:nth-child(even) td{background:#f8f7f4}
+.sum{background:#f0f4ff;border-radius:10px;padding:12px;margin:8px 0}
+footer{margin-top:32px;font-size:11px;color:#999;text-align:right;border-top:1px solid #eae7df;padding-top:10px}
+</style></head><body>
+<h1>📊 광고 성과 기간 비교 보고서</h1>
+<p style="color:#999;font-size:12px">비교 기간: ${adItems[0].savedAt?.slice(0,10)} → ${adItems[adItems.length-1].savedAt?.slice(0,10)}</p>
+<table><thead><tr><th>플랫폼 / 지표</th>${adItems.map(i=>`<th style="text-align:right">${i.savedAt?.slice(0,10)}</th>`).join('')}<th style="text-align:right;color:#c7d2fe">변화</th></tr></thead>
+<tbody>${rows}</tbody></table>
+<footer>광고 성과 비교 보고서 | 마진 계산기 시스템</footer>
+</body></html>`;
+
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([html],{type:'text/html;charset=utf-8'}));
+  a.download = `광고비교보고서_${adItems[0].savedAt?.slice(0,10)||''}_${adItems[adItems.length-1].savedAt?.slice(0,10)||''}.html`;
+  a.click();
+}
+
 function newProduct(s) {
   return {
     id: Date.now() + Math.random(),
@@ -1230,121 +1280,49 @@ ${isAd ? generateAdReportHtml(h) : generateMarginReportHtml(h)}
         onDragOver={e=>{e.preventDefault();setDragOver(true);}}
         onDragLeave={()=>setDragOver(false)}
         onDrop={e=>{e.preventDefault();setDragOver(false);try{const item=JSON.parse(e.dataTransfer.getData("text/plain"));if(!compareItems.find(c=>c.id===item.id))setCompareItems(prev=>[...prev,item].slice(0,4));}catch{}}}>
-        <div style={{fontWeight:600,marginBottom:8,fontSize:13}}>
-          비교 영역 <span style={{fontSize:12,color:"#999",fontWeight:400}}>— 드래그하거나 "비교" 버튼으로 추가 (최대 4개)</span>
-          {compareItems.length>=2&&compareItems.every(c=>c.type==='adreport')&&(
-            <button className="btn btn-ghost" style={{fontSize:11,padding:"3px 10px",marginLeft:8,color:"#276749",borderColor:"#86efac"}}
-              onClick={()=>{
-                const sorted = [...compareItems].sort((a,b)=>a.id-b.id);
-                const prev = sorted[0], curr = sorted[sorted.length-1];
-                const diff = (curr, prev, key, sub) => {
-                  const c = curr?.summary?.[key]?.[sub], p = prev?.summary?.[key]?.[sub];
-                  if (c==null||p==null) return null;
-                  const d = c-p, pct = p!==0?Math.round(d/p*100):0;
-                  return {c:Math.round(c), p:Math.round(p), d:Math.round(d), pct};
-                };
-                const report = ['naver','coupang','adboost'].map(k=>{
-                  if (!curr.summary?.[k]&&!prev.summary?.[k]) return null;
-                  const label = {naver:'네이버',coupang:'쿠팡',adboost:'애드부스트'}[k];
-                  const roasDiff = diff(curr,prev,k,'roas');
-                  const costDiff = diff(curr,prev,k,'totalCost');
-                  return {label, roasDiff, costDiff};
-                }).filter(Boolean);
-                alert(`📊 비교 분석\n${prev.savedAt} → ${curr.savedAt}\n\n`+
-                  report.map(r=>`[${r.label}]\n`+
-                    (r.roasDiff?`ROAS: ${r.roasDiff.p}% → ${r.roasDiff.c}% (${r.roasDiff.d>0?'+':''}${r.roasDiff.d}%p)\n`:'')+
-                    (r.costDiff?`광고비: ₩${r.costDiff.p.toLocaleString()} → ₩${r.costDiff.c.toLocaleString()} (${r.costDiff.pct>0?'+':''}${r.costDiff.pct}%)`:'')).join('\n\n'));
-              }}>
-              📊 변화 비교
-            </button>
+        <div style={{fontWeight:600,marginBottom:8,fontSize:13,display:"flex",alignItems:"center",gap:8}}>
+          비교 영역
+          <span style={{fontSize:12,color:"#999",fontWeight:400}}>— 드래그하거나 "비교" 버튼으로 추가 (최대 4개)</span>
+          {compareItems.filter(c=>c.type==='adreport').length>=2&&(
+            <div style={{marginLeft:"auto",display:"flex",gap:6}}>
+              <button className="btn btn-ghost" style={{fontSize:11,padding:"3px 10px",color:"#276749",borderColor:"#86efac"}}
+                onClick={()=>downloadCompareReport(compareItems, fmt)}>⬇ 비교 보고서</button>
+            </div>
           )}
         </div>
         {compareItems.length===0
-          ?<div style={{color:"#bbb",fontSize:13,textAlign:"center",padding:"8px 0"}}>카드를 여기로 드래그하세요</div>
+          ?<div style={{color:"#bbb",fontSize:13,textAlign:"center",padding:"16px 0"}}>히스토리 카드를 여기로 드래그하세요</div>
           :<div>
-            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:12,marginBottom:compareItems.length>=2?12:0}}>
+            {/* 요약 카드 행 */}
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))",gap:10,marginBottom:16}}>
               {compareItems.map(item=>(
-                <div key={item.id} style={{background:"#f0f4ff",border:"1.5px solid #c7d2fe",borderRadius:11,padding:13,position:"relative"}}>
-                  <button style={{position:"absolute",top:8,right:10,background:"none",border:"none",cursor:"pointer",color:"#bbb",fontSize:16}}
+                <div key={item.id} style={{background:"#f0f4ff",border:"1.5px solid #c7d2fe",borderRadius:11,padding:11,position:"relative"}}>
+                  <button style={{position:"absolute",top:6,right:8,background:"none",border:"none",cursor:"pointer",color:"#bbb",fontSize:14}}
                     onClick={()=>setCompareItems(prev=>prev.filter(c=>c.id!==item.id))}>×</button>
-                  <div style={{fontWeight:600,fontSize:13,color:"#312e81",marginBottom:4}}>
+                  <div style={{fontWeight:600,fontSize:12,color:"#312e81",marginBottom:2,paddingRight:16}}>
                     {item.type==='adreport'?'📊':'💰'} {item.name||item.keyword||"미지정"}
                   </div>
-                  <div style={{fontSize:11,color:"#999",marginBottom:8}}>{item.savedAt}</div>
+                  <div style={{fontSize:10,color:"#999",marginBottom:6}}>{item.savedAt?.slice(0,10)}</div>
                   {item.type==='adreport'
-                    ? <div style={{fontSize:12}}>
-                        {item.summary?.naver&&<div style={{display:"flex",justifyContent:"space-between",marginBottom:2}}>
-                          <span style={{color:"#888"}}>네이버 ROAS</span>
-                          <span className="mono" style={{color:pColor(item.summary.naver.roas-300)}}>{item.summary.naver.roas?.toFixed(0)}%</span>
-                        </div>}
-                        {item.summary?.naver&&<div style={{display:"flex",justifyContent:"space-between",marginBottom:2}}>
-                          <span style={{color:"#888"}}>네이버 광고비</span>
-                          <span className="mono" style={{color:"#c53030"}}>₩{fmt(item.summary.naver.totalCost)}</span>
-                        </div>}
-                        {item.summary?.coupang&&<div style={{display:"flex",justifyContent:"space-between",marginBottom:2}}>
-                          <span style={{color:"#888"}}>쿠팡 ROAS</span>
-                          <span className="mono" style={{color:pColor(item.summary.coupang.roas-300)}}>{item.summary.coupang.roas?.toFixed(0)}%</span>
-                        </div>}
-                        {item.summary?.adboost&&<div style={{display:"flex",justifyContent:"space-between"}}>
-                          <span style={{color:"#888"}}>애드부스트 ROAS</span>
-                          <span className="mono" style={{color:pColor(item.summary.adboost.roas-300)}}>{item.summary.adboost.roas?.toFixed(0)}%</span>
-                        </div>}
-                      </div>
-                    : <div style={{fontSize:12}}>
-                        <div style={{display:"flex",justifyContent:"space-between",marginBottom:2}}><span style={{color:"#888"}}>판매가</span><span className="mono">₩{fmt(item.naverPrice)}</span></div>
-                        <div style={{display:"flex",justifyContent:"space-between"}}><span style={{color:"#555",fontWeight:600}}>소득세이후</span><span className="mono" style={{color:pColor(item.result?.finalProfit||0),fontWeight:700}}>₩{fmt(item.result?.finalProfit)}</span></div>
-                      </div>}
+                    ?<div style={{fontSize:11,display:"flex",flexDirection:"column",gap:2}}>
+                      {item.summary?.naver&&<div style={{display:"flex",justifyContent:"space-between"}}><span style={{color:"#276749"}}>🟢 N</span><span className="mono" style={{fontWeight:700,color:pColor(item.summary.naver.roas-300)}}>{item.summary.naver.roas?.toFixed(0)}%</span></div>}
+                      {item.summary?.coupang&&<div style={{display:"flex",justifyContent:"space-between"}}><span style={{color:"#9c4221"}}>🟠 C</span><span className="mono" style={{fontWeight:700,color:pColor(item.summary.coupang.roas-300)}}>{item.summary.coupang.roas?.toFixed(0)}%</span></div>}
+                      {item.summary?.adboost&&<div style={{display:"flex",justifyContent:"space-between"}}><span style={{color:"#2c5282"}}>🔵 A</span><span className="mono" style={{fontWeight:700,color:pColor(item.summary.adboost.roas-300)}}>{item.summary.adboost.roas?.toFixed(0)}%</span></div>}
+                    </div>
+                    :<div style={{fontSize:11}}>
+                      <div style={{display:"flex",justifyContent:"space-between"}}><span style={{color:"#888"}}>수익</span><span className="mono" style={{fontWeight:700,color:pColor(item.result?.finalProfit||0)}}>₩{fmt(item.result?.finalProfit)}</span></div>
+                    </div>}
                 </div>
               ))}
             </div>
-            {/* 광고 분석 2개 이상 시 수치 변화 테이블 */}
-            {compareItems.length>=2&&compareItems.filter(c=>c.type==='adreport').length>=2&&(()=>{
-              const adItems = [...compareItems.filter(c=>c.type==='adreport')].sort((a,b)=>a.id-b.id);
-              const platforms = ['naver','coupang','adboost'];
-              const labels = {naver:'🟢 네이버',coupang:'🟠 쿠팡',adboost:'🔵 애드부스트'};
-              const metrics = [
-                {key:'totalCost',label:'광고비',fmt:v=>`₩${fmt(v)}`,inverted:true},
-                {key:'roas',label:'ROAS',fmt:v=>`${v?.toFixed(0)}%`},
-                {key:'totalConv',label:'전환수',fmt:v=>`${fmt(v)}건`},
-                {key:'wasteCost',label:'낭비비용',fmt:v=>`₩${fmt(v)}`,inverted:true},
-              ];
-              return (
-                <div style={{background:"#f0f4ff",borderRadius:12,padding:14,border:"1px solid #c7d2fe"}}>
-                  <div style={{fontWeight:600,fontSize:13,color:"#312e81",marginBottom:10}}>
-                    📈 기간 비교: {adItems[0].savedAt?.slice(0,10)} → {adItems[adItems.length-1].savedAt?.slice(0,10)}
-                  </div>
-                  <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
-                    <thead>
-                      <tr style={{borderBottom:"1.5px solid #c7d2fe",color:"#666"}}>
-                        <th style={{textAlign:"left",padding:"4px 8px",fontWeight:600}}>플랫폼/지표</th>
-                        {adItems.map(item=><th key={item.id} style={{textAlign:"right",padding:"4px 8px",fontWeight:600}}>{item.savedAt?.slice(5,10)}</th>)}
-                        <th style={{textAlign:"right",padding:"4px 8px",fontWeight:600,color:"#312e81"}}>변화</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {platforms.flatMap(p=>metrics.map(m=>{
-                        const vals = adItems.map(item=>item.summary?.[p]?.[m.key]);
-                        if (vals.every(v=>v==null)) return null;
-                        const first = vals[0], last = vals[vals.length-1];
-                        const diff = (first!=null&&last!=null)?last-first:null;
-                        const pct = (diff!=null&&first&&first!==0)?Math.round(diff/Math.abs(first)*100):null;
-                        const isGood = m.inverted ? diff<0 : diff>0;
-                        return (
-                          <tr key={p+m.key} style={{borderBottom:"1px solid #e0e7ff"}}>
-                            <td style={{padding:"4px 8px",color:"#555"}}>{labels[p]} {m.label}</td>
-                            {vals.map((v,i)=><td key={i} style={{padding:"4px 8px",textAlign:"right",fontFamily:"DM Mono",color:v==null?"#bbb":"#1a1a1a"}}>{v!=null?m.fmt(v):'-'}</td>)}
-                            <td style={{padding:"4px 8px",textAlign:"right",fontFamily:"DM Mono",fontWeight:700,
-                              color:diff==null?"#bbb":isGood?"#1a6b3a":"#c53030"}}>
-                              {diff!=null?(isGood?'▲':'▼')+m.fmt(Math.abs(diff))+(pct?` (${pct>0?'+':''}${pct}%)`:''):'-'}
-                            </td>
-                          </tr>
-                        );
-                      })).filter(Boolean)}
-                    </tbody>
-                  </table>
-                </div>
-              );
-            })()}
+
+            {/* 광고 분석 2개 이상: 시각화 비교 차트 */}
+            {compareItems.filter(c=>c.type==='adreport').length>=2&&(
+              <CompareChart
+                adItems={[...compareItems.filter(c=>c.type==='adreport')].sort((a,b)=>a.id-b.id)}
+                fmt={fmt} pColor={pColor}
+              />
+            )}
           </div>}
       </div>
       )}
@@ -3074,6 +3052,139 @@ function ProductDBTab({ settings }) {
               })}
             </tbody>
           </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── 비교 차트 컴포넌트 ──
+function CompareChart({ adItems, fmt, pColor }) {
+  const [activeMetric, setActiveMetric] = useState('roas');
+  const [activeAI, setActiveAI] = useState(false);
+  const [compareAIText, setCompareAIText] = useState('');
+  const [compareAILoading, setCompareAILoading] = useState(false);
+
+  const METRICS = [
+    {key:'roas',      label:'ROAS',   unit:'%',  color:'#2c5282', platforms:['naver','coupang','adboost'], inverted:false},
+    {key:'totalCost', label:'광고비',  unit:'원', color:'#c53030', platforms:['naver','coupang','adboost'], inverted:true},
+    {key:'totalConv', label:'전환수',  unit:'건', color:'#276749', platforms:['naver','adboost'],           inverted:false},
+    {key:'wasteCost', label:'낭비비용', unit:'원', color:'#d97706', platforms:['naver','adboost'],           inverted:true},
+    {key:'cpc',       label:'CPC',    unit:'원', color:'#9c4221', platforms:['naver','coupang','adboost'], inverted:true},
+  ];
+  const PC = {naver:'#276749',coupang:'#9c4221',adboost:'#2c5282'};
+  const PL = {naver:'네이버',coupang:'쿠팡',adboost:'애드부스트'};
+  const m = METRICS.find(x=>x.key===activeMetric);
+
+  const chartData = m.platforms.map(p=>{
+    const vals = adItems.map(item=>item.summary?.[p]?.[m.key]||0);
+    return {platform:p, vals};
+  }).filter(d=>d.vals.some(v=>v>0));
+
+  const maxVal = Math.max(...chartData.flatMap(d=>d.vals), 1);
+
+  const runAI = async () => {
+    setCompareAILoading(true); setActiveAI(true); setCompareAIText('');
+    const summary = adItems.map((item,i)=>
+      `[${i===0?'이전':'최신'} - ${item.savedAt?.slice(0,10)}]\n`+
+      Object.entries(item.summary||{}).filter(([,v])=>v).map(([k,s])=>
+        `${PL[k]||k}: 광고비₩${fmt(s.totalCost||0)} ROAS${(s.roas||0).toFixed(0)}% 전환${fmt(s.totalConv||0)}건 낭비₩${fmt(s.wasteCost||0)}`
+      ).join('\n')
+    ).join('\n\n');
+    try {
+      const res = await fetch('/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({prompt:`광고 성과 기간 비교 분석:\n\n${summary}\n\n1. 개선된 지표와 악화된 지표\n2. 지난 달 액션의 효과 평가\n3. 다음 달 우선 조치 3가지\n\n한국어로 간결하게.`})});
+      const data = await res.json();
+      setCompareAIText(data.result||'결과 없음');
+    } catch { setCompareAIText('AI 분석 실패. API 키를 확인하세요.'); }
+    finally { setCompareAILoading(false); }
+  };
+
+  return (
+    <div style={{background:"#fff",border:"1px solid #eae7df",borderRadius:14,padding:18,marginTop:4}}>
+      {/* 기간 표시 */}
+      <div style={{fontSize:12,color:"#666",marginBottom:12}}>
+        📅 기간 비교: <strong>{adItems[0].savedAt?.slice(0,10)}</strong> → <strong>{adItems[adItems.length-1].savedAt?.slice(0,10)}</strong>
+        <span style={{marginLeft:8,fontSize:11,color:"#999"}}>({adItems.length}개 보고서)</span>
+      </div>
+      {/* 지표 선택 */}
+      <div style={{display:"flex",gap:6,marginBottom:16,flexWrap:"wrap",alignItems:"center"}}>
+        <span style={{fontSize:11,color:"#888"}}>지표 선택:</span>
+        {METRICS.map(x=>(
+          <button key={x.key} onClick={()=>setActiveMetric(x.key)}
+            style={{padding:"4px 12px",borderRadius:20,border:`1.5px solid ${x.color}`,fontSize:12,cursor:"pointer",
+              background:activeMetric===x.key?x.color:"#fff",
+              color:activeMetric===x.key?"#fff":x.color,
+              fontWeight:activeMetric===x.key?700:400}}>
+            {x.label}
+          </button>
+        ))}
+        <button onClick={runAI} disabled={compareAILoading}
+          style={{marginLeft:"auto",padding:"4px 14px",borderRadius:20,border:"none",
+            background:"#312e81",color:"#fff",fontSize:12,cursor:"pointer",fontWeight:600}}>
+          {compareAILoading?'분석 중...':'🤖 AI 비교 분석'}
+        </button>
+      </div>
+
+      {/* 바 차트 */}
+      {chartData.length===0
+        ?<div style={{textAlign:"center",color:"#bbb",padding:"20px 0",fontSize:13}}>이 지표에 해당하는 데이터가 없습니다</div>
+        :<div>
+          {chartData.map(({platform,vals})=>(
+            <div key={platform} style={{marginBottom:20}}>
+              <div style={{fontSize:13,fontWeight:600,color:PC[platform],marginBottom:8}}>
+                {PL[platform]}
+              </div>
+              <div style={{display:"flex",gap:10,alignItems:"flex-end",height:140}}>
+                {vals.map((v,i)=>{
+                  const barH = Math.max(6, Math.round(v/maxVal*120));
+                  const isLast = i===vals.length-1;
+                  const prev = i>0?vals[i-1]:null;
+                  const diff = prev!=null?v-prev:null;
+                  const isGood = diff==null?null:(m.inverted?(diff<=0):(diff>=0));
+                  const diffColor = diff===0||diff==null?"#999":isGood?"#1a6b3a":"#c53030";
+                  const fmtV = v => m.unit==='%'?`${v.toFixed(0)}%`:m.unit==='원'?`₩${fmt(v)}`:fmt(v)+m.unit;
+                  return (
+                    <div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",maxWidth:100}}>
+                      {diff!=null?(
+                        <div style={{fontSize:11,fontWeight:700,color:diffColor,marginBottom:2,textAlign:"center"}}>
+                          {diff===0?'━':isGood?'▲':'▼'}{diff!==0?fmtV(Math.abs(diff)):''}
+                        </div>
+                      ):<div style={{height:18}}/>}
+                      <div style={{
+                        width:"100%",height:barH,
+                        background:isLast?PC[platform]:PC[platform]+'44',
+                        borderRadius:"6px 6px 0 0",
+                        border:`2px solid ${isLast?PC[platform]:PC[platform]+'66'}`,
+                        display:"flex",alignItems:"center",justifyContent:"center",
+                      }}>
+                        <span style={{fontSize:10,color:isLast?"#fff":"#555",fontWeight:700,whiteSpace:"nowrap"}}>
+                          {fmtV(v)}
+                        </span>
+                      </div>
+                      <div style={{fontSize:10,color:"#999",marginTop:3,textAlign:"center",lineHeight:1.2}}>
+                        {adItems[i].savedAt?.slice(5,10)}
+                        {i===0&&<div style={{color:"#aaa",fontSize:9}}>이전</div>}
+                        {i===vals.length-1&&<div style={{color:PC[platform],fontSize:9,fontWeight:700}}>최신</div>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>}
+
+      {/* AI 결과 */}
+      {activeAI&&(
+        <div style={{background:"#eef2ff",border:"1px solid #c7d2fe",borderRadius:10,padding:14,marginTop:8}}>
+          <div style={{fontWeight:600,fontSize:13,color:"#312e81",marginBottom:8,display:"flex",justifyContent:"space-between"}}>
+            🤖 AI 비교 분석
+            <button onClick={()=>setActiveAI(false)} style={{background:"none",border:"none",cursor:"pointer",color:"#bbb",fontSize:14}}>×</button>
+          </div>
+          {compareAILoading
+            ?<div style={{color:"#666",fontSize:13}}>분석 중...</div>
+            :<div style={{fontSize:13,lineHeight:1.9,whiteSpace:"pre-wrap",color:"#1e1b4b"}}>{compareAIText}</div>}
         </div>
       )}
     </div>
