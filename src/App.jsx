@@ -1810,9 +1810,14 @@ function AdReportTab({
       parsed.coupang.data.forEach(r => {
         const nm  = String(r['광고집행 상품명']||'').toLowerCase();
         const kw  = String(r['키워드']||'').toLowerCase();
-        const oid = String(r['광고집행 옵션ID']||'').toLowerCase();
+        const oid = String(r['광고집행 옵션ID']||'').toLowerCase().trim();
         const directMatch = nm.includes(key) || kw.includes(key) || oid.includes(key);
-        const dbMatch = (dbCoupangOptionId && oid === dbCoupangOptionId);
+        // DB 옵션ID: 완전일치 또는 DB값이 보고서 옵션ID에 포함되거나 그 반대
+        const dbMatch = dbCoupangOptionId && (
+          oid === dbCoupangOptionId ||
+          oid.includes(dbCoupangOptionId) ||
+          dbCoupangOptionId.includes(oid)
+        );
         if (!directMatch && !dbMatch) return;
         const area = String(r[areaKey2]||'기타');
         const areaLabel = area.includes('비검색') ? '비검색 영역' : area.includes('검색') ? '검색 영역' : area;
@@ -1848,10 +1853,12 @@ function AdReportTab({
       const toN = v => parseFloat(String(v).replace(/,/g,'').replace(/%/g,'')) || 0;
       const matchRows = parsed.adboost.data.filter(r => {
         const nm  = String(r['상품명']||'').toLowerCase();
-        const sid = String(r['쇼핑몰 상품 ID']||'').toLowerCase();
-        const nid = String(r['네이버쇼핑 상품 ID']||'').toLowerCase();
+        const sid = String(r['쇼핑몰 상품 ID']||'').toLowerCase().trim();
+        const nid = String(r['네이버쇼핑 상품 ID']||'').toLowerCase().trim();
         const directMatch = nm.includes(key) || sid.includes(key) || nid.includes(key);
-        const dbMatch = (dbShopId && sid === dbShopId) || (dbNaverShopId && nid === dbNaverShopId);
+        const dbMatch =
+          (dbShopId && (sid === dbShopId || sid.includes(dbShopId) || dbShopId.includes(sid))) ||
+          (dbNaverShopId && (nid === dbNaverShopId || nid.includes(dbNaverShopId) || dbNaverShopId.includes(nid)));
         return directMatch || dbMatch;
       });
       if (matchRows.length > 0) {
@@ -2286,10 +2293,36 @@ function AdReportBody({
                   <div><div style={{fontSize:11,color:'#999'}}>쿠팡 판매가</div><div style={{fontFamily:'DM Mono',fontWeight:600,color:'#9c4221'}}>₩{fmt(searchResult.dbItem.coupangPrice)}</div></div>
                 </div>
                 <div style={{background:'#fff5f5',padding:'8px 12px',borderRadius:8,fontSize:12,color:'#c53030'}}>
-                  ⚠️ 광고 보고서에서 매핑되지 않았습니다.
-                  {searchResult.dbItem.naverGroup
-                    ? <span style={{color:'#276749'}}> 네이버그룹: {searchResult.dbItem.naverGroup} 등록됨 (보고서에 해당 그룹 없음)</span>
-                    : ' → 상품DB 탭에서 광고그룹명/쿠팡옵션ID 입력 필요'}
+                  <div style={{fontWeight:600,marginBottom:6}}>⚠️ 광고 보고서 매핑 현황</div>
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:6,fontSize:11}}>
+                    <div>
+                      <span style={{color:'#888'}}>네이버 광고그룹명: </span>
+                      <span style={{color:searchResult.dbItem.naverGroup?'#276749':'#c53030',fontWeight:600}}>
+                        {searchResult.dbItem.naverGroup||'미입력 ← 입력 필요'}
+                      </span>
+                    </div>
+                    <div>
+                      <span style={{color:'#888'}}>쇼핑몰 상품ID: </span>
+                      <span style={{color:searchResult.dbItem.shopId?'#276749':'#c53030',fontWeight:600}}>
+                        {searchResult.dbItem.shopId||'미입력'}
+                      </span>
+                    </div>
+                    <div>
+                      <span style={{color:'#888'}}>네이버쇼핑 상품ID: </span>
+                      <span style={{color:searchResult.dbItem.naverShopId?'#276749':'#c53030',fontWeight:600}}>
+                        {searchResult.dbItem.naverShopId||'미입력'}
+                      </span>
+                    </div>
+                    <div>
+                      <span style={{color:'#888'}}>쿠팡 옵션ID: </span>
+                      <span style={{color:searchResult.dbItem.coupangOptionId?'#9c4221':'#c53030',fontWeight:600}}>
+                        {searchResult.dbItem.coupangOptionId||'미입력'}
+                      </span>
+                    </div>
+                  </div>
+                  <div style={{marginTop:8,color:'#888',fontSize:10}}>
+                    → 상품DB 탭에서 위 값을 입력하면 광고 보고서와 자동 매핑됩니다
+                  </div>
                 </div>
               </div>
             )}
