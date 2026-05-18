@@ -114,8 +114,11 @@ export default function App() {
     return [newProduct(DEFAULT_SETTINGS)];
   });
   const [history, setHistory] = useState(() => {
-    try { const s = localStorage.getItem("mc_history_v3"); if (s) return JSON.parse(s); } catch {}
-    return [];
+    try {
+      const s = localStorage.getItem("mc_history_v3");
+      const parsed = s ? JSON.parse(s) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch { return []; }
   });
 
   useEffect(() => { try { localStorage.setItem("mc_products_v3", JSON.stringify(products)); } catch {} }, [products]);
@@ -124,10 +127,12 @@ export default function App() {
   // ── 서버에서 히스토리 로드 (앱 시작 시) ──
   useEffect(() => {
     fetch('/api/db-history').then(r=>r.json()).then(d=>{
-      if (d.history?.length) {
+      const serverHistory = Array.isArray(d.history) ? d.history : [];
+      if (serverHistory.length) {
         setHistory(prev => {
-          const ids = new Set(prev.map(h=>h.id));
-          const merged = [...prev, ...d.history.filter(h=>!ids.has(h.id))];
+          const prevArr = Array.isArray(prev) ? prev : [];
+          const ids = new Set(prevArr.map(h=>h.id));
+          const merged = [...prevArr, ...serverHistory.filter(h=>!ids.has(h.id))];
           return merged.sort((a,b)=>b.id-a.id);
         });
       }
@@ -996,7 +1001,7 @@ function HistoryTab({ history, deleteHistory, clearHistory, onViewDetail }) {
     }).catch(()=>{});
   };
 
-  const filtered = history.filter(h => {
+  const filtered = (Array.isArray(history) ? history : []).filter(h => {
     if (filter === 'margin') return h.type !== 'adreport';
     if (filter === 'adreport') return h.type === 'adreport';
     return true;
